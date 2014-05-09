@@ -1,5 +1,3 @@
-
-
 function decorate(iterator, onDone) {
     var done = false;
     return Object.create(
@@ -49,11 +47,30 @@ function Observable(observeDefn) {
     this.observe = observeDefn;
 }
 
-// Convert any DOM event into an async generator
-Observable.fromEvent = function(dom, eventName, syncAction, scheduler) {
+Observable.fromEvent = function(add, remove, scheduler) {
     scheduler = scheduler || microTaskScheduler;
 
     return new Observable(function observe(iterator) {
+        var next = iterator.next;
+        var handler = function() {
+            if (next) {
+                next.apply(iterator, Array.prototype.slice.call(arguments));
+            }
+        };
+
+        scheduler.schedule(function() { add(handler) });
+
+        return decorate(iterator, function() {
+            remove(handler);
+        });
+    });
+};
+
+// Convert any DOM event into an async generator
+Observable.fromDOMEvent = function(dom, eventName, syncAction, scheduler) {
+    scheduler = scheduler || microTaskScheduler;
+
+    return new Observable(function fromDOMEventObserve(iterator) {
         var handler = function(e) {
                 if (syncAction) {
                     syncAction(e);
@@ -289,7 +306,7 @@ Observable.prototype = {
                         next: {
                             value: function(value) {  
                                 num--;
-                                if (num <= 0 && next) {
+                                if (num < 0 && next) {
                                     next.call(iterator,value);
                                 }
                             }

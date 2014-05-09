@@ -1,0 +1,98 @@
+<html>
+<head>
+<script src="../src/observable.js"></script>
+</head>
+<body>
+<pre>
+    var person = {
+        name: "Jim",
+        age: 23,
+        bestFriend: {
+            name: "Pam",
+            address: {
+                country: "Canada",
+                street: "Porteous",
+                number: 22
+            }
+        }
+    };
+}
+</pre>
+<form onsubmit="return run();">
+<label for="path">Value of person.bestFriend.name</label><input id="path">
+<label for="command">Type commands to change properties:</label><input id="command">
+<button id="run">run</button>
+</form>
+<script>
+
+Object.observations = function(obj) {
+    return Observable.fromEvent(
+        Object.observe.bind(Object, obj), 
+        Object.unobserve.bind(Object, obj));
+};
+
+function keyValues(obj, key) {
+    return Observable.
+        concat(
+            // current value
+            Observable.of(obj[key]),
+            // future values
+            Object.
+                observations(obj).
+                mergeMap(function(changes) {
+                    return Observable.
+                        from(changes).
+                        filter(function(change) { return change.name === key }).
+                        map(function(change) { return obj[key]; });
+                }));
+}
+
+function pathValues(obj, path) {
+    var values = keyValues(obj, path[0]);
+    if (path.length === 1) {
+        return values;
+    }
+    else {
+        return values.
+            switchMap(function(value) {
+                if (value == null) {
+                    return Observable.of(null);
+                }
+                else {
+                    return pathValues(value, path.slice(1));
+                }
+            });
+    }
+}
+
+function observePath(obj, path) {
+    return pathValues(obj, path).skip(1);
+}
+
+window.run = function() {
+    eval(document.getElementById('command').value);
+    return false;
+};
+
+window.person = {
+        name: "Jim",
+        age: 23,
+        bestFriend: {
+            name: "Pam",
+            address: {
+                country: "Canada",
+                street: "Porteous",
+                number: 22
+            }
+        }
+    };
+
+observePath(window.person,["bestFriend","name"]).
+    observe({
+        next: function(value) {
+            document.getElementById('path').value = value;
+        }
+    })
+</script>
+</body>
+</html>
