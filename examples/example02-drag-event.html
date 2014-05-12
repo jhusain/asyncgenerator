@@ -21,8 +21,8 @@ window.onload = function() {
                     return Object.create(
                         e,
                         {
-                            x: { value: e.x - mouseDownEvent.offsetX },
-                            y: { value: e.y - mouseDownEvent.offsetY }
+                            offsetX: {value: mouseDownEvent.offsetX },
+                            offsetY: {value: mouseDownEvent.offsetY}
                         });
                 }).
                 takeUntil(documentMouseUps);
@@ -30,8 +30,8 @@ window.onload = function() {
 
     mouseDrags.observe({
         next: function(e) {
-            icon.style.left = e.x;
-            icon.style.top = e.y;
+            icon.style.left = e.x - e.offsetX;
+            icon.style.top = e.y - e.offsetY;
         }
     })
 };
