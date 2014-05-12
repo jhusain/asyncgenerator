@@ -1,0 +1,46 @@
+<html>
+<head>
+    <style>
+        body {
+            font-family: sans-serif;
+        }
+    </style>
+
+<script src="../src/observable.js"></script>
+</head>
+<body>
+<h1>Introducing Asynchronous Generators</h1>
+
+
+To demonstrate, let's invent a literal syntax for Observables. <b>This literal syntax is <u>not</u> being proposed.</b> It is used only for the purposes of visualization.
+
+<pre>
+// A sequence of numbers arriving over time...
+var someObservable = <b><|...1....2....3...|></b>; // for the last time, <u>not</u> proposing this syntax. :-)
+someObservable.observe({
+    next: function(v) {
+        console.log(v);
+    },
+    return: function() {
+        console.log("done");
+    }
+}
+});
+</pre>
+
+If run, this code would log the following...
+
+<pre>
+> immediately after observe
+> 1
+> 2
+> 3
+> done
+</pre>
+
+...with each number and the "done" message being logged an equal amount of time apart.
+<script>
+
+</script>
+</body>
+</html>

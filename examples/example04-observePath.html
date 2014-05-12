@@ -1,0 +1,203 @@
+<html>
+<head>
+    <style>
+        body {
+            font-family: sans-serif;
+        }
+    </style>
+
+<script src="../src/observable.js"></script>
+</head>
+<body>
+<h1>Object.observe with async generators</h1>
+
+We can redesign the Object.observe API as an async generator to demonstrate the superior expressiveness of the Observable type. The ES7 Object.observe method is a sequence of values that arrives over time. As a result, it makes a lot of sense to implement it as an asynchronous generator. Regardless it is easy enough to convert this callback API to an asynchronous generator by passing a conversion method the add and remove closures.
+
+<pre>
+    Object.observations = function(obj) {
+        return Observable.fromEventPattern(
+            Object.observe.bind(Object, obj), 
+            Object.unobserve.bind(Object, obj));
+    };
+</pre>
+
+If we express object observations as a stream of values, we can easily compose them together to <b>observe paths</b>. First we build a helper function that returns a stream of all an object's key values over time.
+
+<pre>
+    var keyValues = function(obj, key) {
+        var initialValue = Observable.of(obj[key]),
+            futureValues = 
+                Object.
+                    observations(obj).
+                    <b>mergeMap</b>(function(changes) {
+                        return Observable.
+                            from(changes).
+                            filter(function(change) { return change.name === key }).
+                            map(function(change) { return obj[key]; }).
+                            take(1);
+                    });
+            
+        return initialValue.concat(futureValues);
+    };
+</pre>
+
+Notice the use of the <b>mergeMap</b> method, one of several variations of flatMap that can be applied to asynchronous generator functions. <b>Merge</b> is one of <i>three common flattening strategies</i> that can be applied to two-dimensional asynchronous sequences.
+
+<ol>
+    <li>Merge</li>
+    <li>Concat</li>
+    <li>Switch (Latest)</li>
+</ol>
+
+<p>To understand their effects, let's visualize them using a hypothetical literal syntax for Observables. <b>This literal syntax is <u>not</u> being proposed, and is used here solely for the purposes of instruction.</b> Let's imagine that we can create an Observable this way...</p>
+
+
+
+In this example, we examine the effects of applying flattening patterns to a sample two-dimensional Observable sequence.
+
+<pre>
+                        time
+        -------------------------------------->
+
+        <|
+        .....<|....2.....3....4|>
+        ........<|....9..........7|>
+        ...................<|........5..|>
+        |>
+
+merge   <|.........2..9..3....4..7...5..|>
+concat  <|.........2.....3....4....9..........7........5..|>
+switch  <|............9..............5..|>
+
+</pre>
+
+<p>The <b>merge</b> operation returns elements in the inner sequences in the order in which the elements arrive. The <b>concat</b> operation returns the elements in the inner sequences in the order in which the <i>sequences</i> arrive. Finally the <b>switch</b> operation returns elements in the sequences in the order in which the elements arrive, but stops observing the current sequence as soon as a new sequence arrives.</p>
+
+<p>We will use switch flattening patterns to avoid memory leaks when observing deep paths. Take a look at the following sample object.
+
+<pre>
+    var <b>person</b> = {
+        name: "Jim",
+        age: 23,
+        <b>bestFriend</b>: {
+            <b>name</b>: "Pam",
+            address: {
+                country: "Canada",
+                street: "Porteous",
+                number: 22
+            }
+        }
+    };
+}
+</pre>
+
+<p>Let's say we want to observe the path <b>person.bestFriend.name</b>. This will require two calls to Object.observe: one for the person object, and one for the current value of the bestFriend. If the bestFriend property value were to change a new object, we would need to unobserve the previous value, and switch to observing the latest. This algorithm is easily expressed with the switchMap method.</p>
+
+<pre>
+    function pathValues(obj, path) {
+        var values = keyValues(obj, path[0]);
+        if (path.length === 1) {
+            return values;
+        }
+        else {            
+            return values.
+                <b>switchMap</b>(function(value) {
+                    if (value == null) {
+                        return Observable.of(null);
+                    }
+                    else {
+                        return pathValues(value, path.slice(1));
+                    }
+                });
+        }
+    };
+</pre>
+
+<p>In the example above, we used the keyValues helper method to grab the stream of all of the values in the first key of the path. In the inductive case, if the current value is null we return a stream that contains just null. If not, we recursively look up the remaining path on each successive new value at the first key. We use the <b>switch</b> variation of flatMap to flatten, ensuring we are only listening for the remaining path on the latest value of key.</p>
+
+<p>This was easy enough. Unfortunately there is one problem. The stream includes the current value of the path, and we are only interested in changes. This is easily resolved with the skip operator.</p>
+<pre>
+    function observePath(obj, path) {
+        return pathValues(obj, path).skip(1);
+    };
+</pre>
+<h2>Demo</h2>
+<p>For this example to work, you have to have Chrome Canary with the experimental Javascript flag turned on.</p>
+<form onsubmit="return run();">
+<label for="command">Type commands to change properties:</label><input id="command" style="width:550px" value="person.bestFriend = { name: 'Ron'}"><button id="run">run</button><br/>
+<label for="path">person.bestFriend.name === </label><input id="path" length="50" value="Pam" style="width:50px">
+
+</form>
+<script>
+
+Object.observations = function(obj) {
+    return Observable.fromEventPattern(
+        Object.observe.bind(Object, obj), 
+        Object.unobserve.bind(Object, obj));
+};
+
+function keyValues(obj, key) {
+    var initialValue = Observable.of(obj[key]),
+        futureValues = 
+            Object.
+                observations(obj).
+                mergeMap(function(changes) {
+                    return Observable.
+                        from(changes).
+                        filter(function(change) { return change.name === key }).
+                        map(function(change) { return obj[key]; }).
+                        take(1);
+                });
+        
+    return initialValue.concat(futureValues);
+}
+
+function pathValues(obj, path) {
+    var values = keyValues(obj, path[0]);
+    if (path.length === 1) {
+        return values;
+    }
+    else {
+        return values.
+            switchMap(function(value) {
+                if (value == null) {
+                    return Observable.of(null);
+                }
+                else {
+                    return pathValues(value, path.slice(1));
+                }
+            });
+    }
+}
+
+function observePath(obj, path) {
+    return pathValues(obj, path).skip(1);
+}
+
+document.getElementById('run').addEventListener('click', function(e) {
+    eval(document.getElementById('command').value);
+    e.preventDefault();
+});
+
+window.person = {
+        name: "Jim",
+        age: 23,
+        bestFriend: {
+            name: "Pam",
+            address: {
+                country: "Canada",
+                street: "Porteous",
+                number: 22
+            }
+        }
+    };
+
+observePath(window.person,["bestFriend","name"]).
+    observe({
+        next: function(value) {
+            document.getElementById('path').value = value;
+        }
+    })
+</script>
+</body>
+</html>

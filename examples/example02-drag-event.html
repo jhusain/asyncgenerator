@@ -1,0 +1,42 @@
+<html>
+<head>
+    <script src="../src/observable.js"></script>
+    </head>
+    <body>
+<h1>Event composition with Asynchronous Generators</h1>
+
+In this example, we create a mouse drag event for a given DOM element.  Drag the element below around and then view source to see the code.
+<script>
+
+window.onload = function() {
+    var icon = document.getElementById('icon');
+    var mouseDowns = Observable.fromEvent(icon, 'mousedown', function(e) { e.preventDefault(); });
+    var documentMouseMoves = Observable.fromEvent(document, 'mousemove', function(e) { e.preventDefault(); });
+    var documentMouseUps = Observable.fromEvent(document, 'mouseup', function(e) { e.preventDefault(); });
+    
+    var mouseDrags =
+        mouseDowns.mergeMap(function(mouseDownEvent) {
+            return documentMouseMoves.
+                map(function(e) {
+                    return Object.create(
+                        e,
+                        {
+                            x: { value: e.x - mouseDownEvent.offsetX },
+                            y: { value: e.y - mouseDownEvent.offsetY }
+                        });
+                }).
+                takeUntil(documentMouseUps);
+        });
+
+    mouseDrags.observe({
+        next: function(e) {
+            icon.style.left = e.x;
+            icon.style.top = e.y;
+        }
+    })
+};
+
+</script>
+<div id="icon" style="position:absolute;left:300px;top:300px">DRAG ME!</div>
+</body>
+</html>
