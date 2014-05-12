@@ -47,7 +47,7 @@ function Observable(observeDefn) {
     this.observe = observeDefn;
 }
 
-Observable.fromEvent = function(add, remove, scheduler) {
+Observable.fromEventPattern = function(add, remove, scheduler) {
     scheduler = scheduler || microTaskScheduler;
 
     return new Observable(function observe(iterator) {
@@ -67,7 +67,7 @@ Observable.fromEvent = function(add, remove, scheduler) {
 };
 
 // Convert any DOM event into an async generator
-Observable.fromDOMEvent = function(dom, eventName, syncAction, scheduler) {
+Observable.fromEvent = function(dom, eventName, syncAction, scheduler) {
     scheduler = scheduler || microTaskScheduler;
 
     return new Observable(function fromDOMEventObserve(iterator) {
