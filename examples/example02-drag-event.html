@@ -30,8 +30,8 @@ window.onload = function() {
 
     mouseDrags.observe({
         next: function(e) {
-            icon.style.left = e.x - e.offsetX;
-            icon.style.top = e.y - e.offsetY;
+            icon.style.left = (e.x - e.offsetX) + 'px';
+            icon.style.top = (e.y - e.offsetY) + 'px';
         }
     })
 };
