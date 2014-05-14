@@ -91,7 +91,7 @@ switch  <|............9..............5..|>
 }
 </pre>
 
-<p>Let's say we want to observe the path <b>person.bestFriend.name</b>. This will require two calls to Object.observe: one for the person object, and one for the current value of the bestFriend. If the bestFriend property value were to change a new object, we would need to unobserve the previous value, and switch to observing the latest. This algorithm is easily expressed with the switchMap method.</p>
+<p>Let's say we want to observe the path <b>person.bestFriend.name</b>. This will require two calls to Object.observe: one for the person object, and one for the current value of the bestFriend. If the bestFriend property value were to change a new object, we would need to unobserve the previous bestFriend value, and switch to observing the latest. This algorithm is easily expressed with the switchMap method.</p>
 
 <pre>
     function pathValues(obj, path) {
