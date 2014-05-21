@@ -50,7 +50,7 @@ function Observable(observeDefn) {
 Observable.fromEventPattern = function(add, remove, scheduler) {
     scheduler = scheduler || microTaskScheduler;
 
-    return new Observable(function observe(iterator) {
+    return new Observable(function fromEventPatternObserve(iterator) {
         var next = iterator.next;
         var handler = function() {
             if (next) {
@@ -70,7 +70,7 @@ Observable.fromEventPattern = function(add, remove, scheduler) {
 Observable.fromEvent = function(dom, eventName, syncAction, scheduler) {
     scheduler = scheduler || microTaskScheduler;
 
-    return new Observable(function fromDOMEventObserve(iterator) {
+    return new Observable(function fromEventObserve(iterator) {
         var handler = function(e) {
                 if (syncAction) {
                     syncAction(e);
@@ -95,11 +95,10 @@ Observable.fromEvent = function(dom, eventName, syncAction, scheduler) {
 
 Observable.empty = function(scheduler) {
     scheduler = scheduler || microTaskScheduler;
-    return new Observable(function(iterator) {
-        var done = false,
-            decoratedIterator = decorate(iterator);
+    return new Observable(function emptyObserve(iterator) {
+        var decoratedIterator = decorate(iterator);
 
-        scheduler.schedule(decoratedIterator.return.bind(decoratedIterator));
+        scheduler.schedule(function() { decoratedIterator.return(); });
 
         return decoratedIterator;
     });
@@ -108,29 +107,18 @@ Observable.empty = function(scheduler) {
 Observable.from = function(arr, scheduler) {
     scheduler = scheduler || microTaskScheduler;
 
-    return new Observable(function(iterator) {
+    return new Observable(function fromObserve(iterator) {
         var done = false,
-            decoratedIterator = 
-                Object.create(
-                    iterator,
-                    {
-                        return: {
-                            value: function(v) {
-                                var returnFn = iterator.return;
-                                done = true;
-                                if (returnFn) {
-                                    returnFn.call(this, v);
-                                }
-                            }
-                        }
-                    });
+            decoratedIterator = decorate(iterator, function() {
+                done = true;
+            });
 
         scheduler.schedule(function() {
             for(var count = 0; count < arr.length; count++) {
-                iterator.next(arr[count]);
                 if (done) {
                     return;
                 }
+                iterator.next(arr[count]);
             }
             decoratedIterator.return();
         });
@@ -189,6 +177,37 @@ Observable.prototype = {
                                 var next = iterator.next;
                                 if (next && predicate.call(thisArg, value)) {
                                     return next.call(iterator, value);
+                                }
+                            }
+                        }
+                    })
+            });
+    },
+    some: function(callback, thisArg) {
+       return this.lift(
+            function(iterator) {
+                var next = iterator.next;
+                var returnFn = iterator.return;
+                var value;
+                thisArg = thisArg !== undefined ? thisArg : this;
+                return Object.create(
+                    iterator,
+                    {
+                        next: {
+                            value: function(v) {
+                                var result;
+                                if (next && callback.call(thisArg, v)) {
+                                    value = v;
+                                    result = next.call(iterator, true);
+                                    this.return();
+                                    return result;
+                                }
+                            }
+                        },
+                        return: {
+                            value: function() {
+                                if (value === undefined && returnFn) {
+                                    returnFn.call(this);
                                 }
                             }
                         }
