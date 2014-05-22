@@ -1,0 +1,31 @@
+{
+  "name": "asyncgenerator",
+  "title": "Asynchronous Generators",
+  "description": "Library for composing asynchronous and event-based operations using ES6 generator type",
+  "version": "0.1.1",
+  "homepage": "https://github.com/jhusain/asyncgenerator",
+  "author": {
+    "name": "Jafar Husain"
+  },
+
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jhusain/asyncgenerator"
+  },
+  "licenses": [
+    {
+      "type": "Apache License, Version 2.0",
+      "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+    }
+  ],
+  "dependencies": {},
+  "devDependencies": {},
+  "scripts": {
+    "prepublish": "node build.js"
+  },
+  "keywords": [
+    "Reactive",
+    "Events"
+  ],
+  "main": "asyncgenerator.js"
+}
