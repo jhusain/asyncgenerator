@@ -1,4 +1,80 @@
-# Async Generators in ES7
+# Async Generator Proposal (ES7)
+
+Async Generators are currently proposed for ES7 and are at the strawman phase. This proposal builds on the [async function](https://github.com/lukehoban/ecmascript-asyncawait) proposal.
+
+JavaScript programs are single-threaded and therefore must streadfastly avoid blocking on IO operations. Today web developers must deal with a steadily increasing number of push stream APIs:
+
+* Server sent events
+* Web sockets
+* DOM events
+
+Developers should be able to easily consume these push data sources, as well as compose them together to build complex concurrent programs.
+
+ES6 introduced generator functions for producing data via iteration, and a new for...of loop for consuming data via iteration.
+
+```JavaScript
+// data producer
+function* nums() {
+  yield 1;
+  yield 2;
+  yield 3;
+}
+
+// data consumer
+function printData() {
+  for(var x of nums()) {
+    console.log(x);
+  }
+}
+```
+
+These features are ideal for progressively consuming data stored in collections or lazily produced by computations. However they are not well-suited to consuming asynchronous streams of information, because Iteration is synchronous. 
+
+The async generator proposal attempts to solve this problem by adding symmetrical support for Observation to ES7. It would introduce asynchronous generator functions for producing data via _observation_, and a new for..._on_ loop for consuming data via observation.
+
+```JavaScript
+// data producer
+async function*() {
+  yield 1;
+  yield 2;
+  yield 3;
+}
+
+// data consumer
+async function printData() {
+  for(var x on nums()) {
+    console.log(x);
+  }
+}
+```
+
+The for..._on_ loop would allow any of the web's many push data streams to be consumed using the simple and familiar loop syntax. Here's an example that returns the first stock price that differs by a certain delta.
+
+```JavaScript
+async function getPriceSpikes(stockSymbol, int maxDelta) {
+  var delta,
+    oldPrice,
+    price;
+    
+  for(var price on toObservable(new WebSocket("ws://www.fakedomain.com/stockstream/" + stockSymbol))) {
+    if (oldPrice == null) {
+      oldPrice = price;
+    }
+    else {
+      delta = price - oldPrice;
+      oldPrice = price;
+      if (delta > maxDelta) {
+        return {price, oldPrice};
+      }
+    }
+  }
+}
+
+// get the first price that differs from previous spike by $5.00
+getPriceSpikes("JNJ", 5.00).then(priceDelta => console.log("PRICE SPIKE:", priceDelta));
+```
+
+## Introducing Async Generators
 
 An ES6 generator function differs from a normal function, in that it returns multiple values:
 
@@ -43,7 +119,7 @@ getStockPriceAsync("JNJ").
 
 We can view these language features in a table like so:
 
-|               | Pull          | Push          |
+|               | Sync          | Async         |
 | ------------- |:-------------:|:-------------:|
 | function      | T             | Promise<T>    |
 | function*     | Iterator<T>   |      ???      |
@@ -63,7 +139,7 @@ var prices = getStockPrices("JNJ", "CAN");
 
 If a generator function modifies a function and causes it to return multiple values and the async modifier causes functions to push their values, _an asynchronous generator funciton must push multiple values_. What data type fits this description?
 
-## What does an async generator function return?
+## The return type of an Async Generator
 
 ES6 introduces the Generator interface, which is a combination of two different interfaces:
 
@@ -93,8 +169,6 @@ interface Observer {
   void throw(error);
 }
 ```
-
-The Observer is a data sink which can be pushed a value, an error, or a final value (via return).
 
 ### Iteration and Observation
 
