@@ -6,7 +6,7 @@
         }
     </style>
 
-<script src="../src/observable.js"></script>
+<script src="../asyncgenerator.js"></script>
 </head>
 <body>
 <h1>Object.observe with async generators</h1>
@@ -122,6 +122,7 @@ switch  <|............9..............5..|>
     };
 </pre>
 <h2>Demo</h2>
+
 <p>For this example to work, you have to have Chrome Canary with the experimental Javascript flag turned on.</p>
 <form onsubmit="return run();">
 <label for="command">Type commands to change properties:</label><input id="command" style="width:550px" value="person.bestFriend = { name: 'Ron'}"><button id="run">run</button><br/>
@@ -129,6 +130,7 @@ switch  <|............9..............5..|>
 
 </form>
 <script>
+var Observable = asyncgenerator.Observable;
 
 Object.observations = function(obj) {
     return Observable.fromEventPattern(
@@ -192,12 +194,14 @@ window.person = {
         }
     };
 
+
 observePath(window.person,["bestFriend","name"]).
     observe({
         next: function(value) {
             document.getElementById('path').value = value;
         }
     })
+
 </script>
 </body>
 </html>

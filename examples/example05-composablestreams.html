@@ -1,0 +1,37 @@
+<html>
+<head>
+    <style>
+        body {
+            font-family: sans-serif;
+        }
+    </style>
+
+<script src="../src/observable.js"></script>
+</head>
+<body>
+<h1>Streams with backpressure</h1>
+
+
+<script>
+
+var Promise = function(start) {
+    start(this.accept.bind(this), this.reject.bind(this));
+};
+
+Promise.prototype.then = function(data, error) {
+    if (data instanceof Promise) {
+
+    }
+}
+var Reader = function(observable) {
+    this._observe = observable.observe;
+}
+
+Reader.prototype = new Observable();
+
+var MockFileStream = function() {
+    
+}
+</script>
+</body>
+</html>

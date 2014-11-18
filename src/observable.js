@@ -1,3 +1,8 @@
+var Promise = require('promise');
+var Symbol = require('es6-symbol');
+
+var asap = require('asap');
+
 function decorate(iterator, onDone) {
     var done = false;
     return Object.create(
@@ -36,11 +41,11 @@ function decorate(iterator, onDone) {
         });
 };
 
-var microTaskScheduler = {
-    schedule: function(action) {
-        // will be window.asap in ES7
-        setTimeout(action);
-    }
+var microTaskScheduler = function(fn, args) {
+    //asap(fn.bind(null, args));
+    setTimeout(function() {
+        fn(args);
+    })
 };
 
 function Observable(observeDefn) {
@@ -50,7 +55,7 @@ function Observable(observeDefn) {
 Observable.fromEventPattern = function(add, remove, scheduler) {
     scheduler = scheduler || microTaskScheduler;
 
-    return new Observable(function fromEventPatternObserve(iterator) {
+    return new Observable(function observe(iterator) {
         var next = iterator.next;
         var handler = function() {
             if (next) {
@@ -58,7 +63,7 @@ Observable.fromEventPattern = function(add, remove, scheduler) {
             }
         };
 
-        scheduler.schedule(function() { add(handler) });
+        scheduler(function() { add(handler) });
 
         return decorate(iterator, function() {
             remove(handler);
@@ -70,7 +75,7 @@ Observable.fromEventPattern = function(add, remove, scheduler) {
 Observable.fromEvent = function(dom, eventName, syncAction, scheduler) {
     scheduler = scheduler || microTaskScheduler;
 
-    return new Observable(function fromEventObserve(iterator) {
+    return new Observable(function fromDOMEventObserve(iterator) {
         var handler = function(e) {
                 if (syncAction) {
                     syncAction(e);
@@ -85,7 +90,7 @@ Observable.fromEvent = function(dom, eventName, syncAction, scheduler) {
                          dom.removeEventListener(eventName, handler);
                     });
             
-        scheduler.schedule(function() {
+        scheduler(function() {
             dom.addEventListener(eventName, handler)
         });
 
@@ -95,10 +100,11 @@ Observable.fromEvent = function(dom, eventName, syncAction, scheduler) {
 
 Observable.empty = function(scheduler) {
     scheduler = scheduler || microTaskScheduler;
-    return new Observable(function emptyObserve(iterator) {
-        var decoratedIterator = decorate(iterator);
+    return new Observable(function(iterator) {
+        var done = false,
+            decoratedIterator = decorate(iterator);
 
-        scheduler.schedule(function() { decoratedIterator.return(); });
+        scheduler(decoratedIterator.return.bind(decoratedIterator));
 
         return decoratedIterator;
     });
@@ -107,18 +113,20 @@ Observable.empty = function(scheduler) {
 Observable.from = function(arr, scheduler) {
     scheduler = scheduler || microTaskScheduler;
 
-    return new Observable(function fromObserve(iterator) {
+    return new Observable(function(iterator) {
         var done = false,
-            decoratedIterator = decorate(iterator, function() {
-                done = true;
-            });
+            decoratedIterator = 
+                decorate(iterator, function() { done = true });
 
-        scheduler.schedule(function() {
+        scheduler(function() {
             for(var count = 0; count < arr.length; count++) {
                 if (done) {
                     return;
                 }
-                iterator.next(arr[count]);
+                decoratedIterator.next(arr[count]);
+            }
+            if (done) {
+                return;
             }
             decoratedIterator.return();
         });
@@ -137,6 +145,33 @@ Observable.concat = function() {
 
 Observable.of = function() {
     return Observable.from(Array.prototype.slice.call(arguments));
+};
+
+Observable.interval = function(time) {
+    return new Observable(function forEach(observer) {
+        var handle,
+            decoratedObserver = decorate(observer, function() { clearInterval(handle); });
+
+        handle = setInterval(function() {
+            decoratedObserver.next();
+        }, time);
+
+        return decoratedObserver;
+    });
+};
+
+Observable.timeout = function(time) {
+    return new Observable(function forEach(observer) {
+        var handle,
+            decoratedObserver = decorate(observer, function() { clearInterval(handle); });
+
+        handle = setTimeout(function() {
+            decoratedObserver.next();
+            decoratedObserver.return();
+        }, time);
+
+        return decoratedObserver;
+    });
 };
 
 Observable.prototype = {
@@ -158,7 +193,12 @@ Observable.prototype = {
                             value: function(value) {
                                 var next = iterator.next;
                                 if (next) {
-                                    return next.call(iterator, projection.call(thisArg, value), index++, this);
+                                    try {
+                                        return next.call(iterator, projection.call(thisArg, value), index++, this);
+                                    }
+                                    catch(e) {
+                                        return this.throw(e);
+                                    }
                                 }
                             }
                         }
@@ -174,40 +214,19 @@ Observable.prototype = {
                     {
                         next: {
                             value: function(value) {
-                                var next = iterator.next;
+                                var next = iterator.next,
+                                    throwFn;
+
                                 if (next && predicate.call(thisArg, value)) {
-                                    return next.call(iterator, value);
-                                }
-                            }
-                        }
-                    })
-            });
-    },
-    some: function(callback, thisArg) {
-       return this.lift(
-            function(iterator) {
-                var next = iterator.next;
-                var returnFn = iterator.return;
-                var value;
-                thisArg = thisArg !== undefined ? thisArg : this;
-                return Object.create(
-                    iterator,
-                    {
-                        next: {
-                            value: function(v) {
-                                var result;
-                                if (next && callback.call(thisArg, v)) {
-                                    value = v;
-                                    result = next.call(iterator, true);
-                                    this.return();
-                                    return result;
-                                }
-                            }
-                        },
-                        return: {
-                            value: function() {
-                                if (value === undefined && returnFn) {
-                                    returnFn.call(this);
+                                    try {
+                                        return next.call(iterator, value);    
+                                    }
+                                    catch(e) {
+                                        throwFn = this.throw;
+                                        if (throwFn) {
+                                            throwFn.call(this, e);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -249,15 +268,18 @@ Observable.prototype = {
             });
     },
     reverse: function() {
-        return this.toArray().mergeMap(function(arr) {
-            return Observable.from(arr.reverse());
-        });
+        return this.
+            toArray().
+            mergeMap(function(arr) {
+                return Observable.from(arr.reverse());
+            });
     },
     toArray: function() {
-        return this.reduce(function(acc, cur) {
-            acc.push(cur);
-            return acc;
-        }, [])
+        return this.
+            reduce(function(acc, cur) {
+                acc.push(cur);
+                return acc;
+            }, [])
     },    
     first: function() {
         return this.lift(
@@ -333,6 +355,28 @@ Observable.prototype = {
                     })
             });
     },
+    forEach: function(next) {
+        var self = this;
+        return new Promise(function(resolve, reject) {
+            self.observe({
+                next: next,
+                return: function() {
+                    resolve();
+                },
+                throw: reject
+            });
+        });
+    },
+    done: function() {
+        var self = this;
+        return new Promise(function(resolve, reject) {
+            self.observe({
+                next: function(){},
+                return: resolve,
+                throw: reject
+            });
+        });        
+    },
     take: function(num) {
         var self = this,
             count = 0;
@@ -345,10 +389,8 @@ Observable.prototype = {
                     {
                         next: {
                             value: function(value) {                            
-                                var result;                            
-                                if (next) {
-                                    result = next.call(iterator, value);
-                                }
+                                var result = next.call(iterator, value);
+
                                 if (count === num - 1) {
                                     result = this.return();
                                 }
@@ -408,299 +450,406 @@ Observable.prototype = {
                 return decoratedIterator;
         });
     },
+    /*
+    flatten: function(
+        errorBufferSize,
+        errorBufferOverrunPolicy, // BUFFER_OVERRUN_POLICY.THROW | BUFFER_OVERRUN_POLICY.LATEST | BUFFER_OVERRUN_POLICY.OLDEST
+        maxConcurrent, 
+        switchPolicy, // SWITCH.ON_COMPLETION | SWITCH.ON_ARRIVAL | SWITCH.ON_NOTIFICATION
+        observableBufferSize, 
+        observableBufferOverrunPolicy, 
+        orderResults,
+        itemsBufferSize,
+        itemBufferOverrunPolicy) { }
+    */
+    //TODO: Use symbol to avoid collision on index member added to iterator
     mergeAll: function(delayErrors) {
         var self = this;
 
-        return new Observable(function observe(iterator) {
-            var iterators = {},
-                numIterators = 1,
-                nextIteratorIndex = 1,    
-                returnFn = iterator.return,
-                next = iterator.next,
-                throwFn = iterator.throw,              
-                dispose = function() {
-                    for(var key in iterators) {
-                        var innerIterator = iterators[key],
-                            returnFn;
-                        if (innerIterator) {
-                            returnFn = innerIterator.return;
+        return new Observable(function observe(observer) {
+            var indexSymbol = Symbol("index"), // key at which index of observer can be found. Index of each observer in observers map is stored at this symbol. This won't be necessary when we have Map.
+                observers = Object.create(null),
+                numObservers = 1,
+                nextObserverIndex = 1, 
+                next = observer.next,
+                errors = [],
+                // finishes all inner and outer observation operations.
+                onDone = function() {
+                    var key,
+                        innerObserver,
+                        returnFn;
+
+                    for(key in observers) {
+                        innerObserver = observers[key];
+                        if (innerObserver) {
+                            returnFn = innerObserver.return;
                             if (returnFn) {
-                                returnFn.call(innerIterator);
+                                returnFn.call(innerObserver);
                             }
                         }
                     }
-                    iterators = undefined;
                 },
-                throwFn = function(e) {
-                    delete iterators[this.index];
-                    numIterators--;
+                // The observer two which the merged output is sent. Finishes all inner and outer observation operations when terminated.
+                decoratedObserver = decorate(observer, onDone),
+                // The prototype used for the outer observer and all the inner observers
+                // Both type of observer remove themself from the observers array,
+                // then send a termination message to the decoratedObserver
+                observerPrototype = {
+                    // In event of error, removes itself from observers
+                    throw: function(e) {
+                        delete observers[this[indexSymbol]];
+                        numObservers--;
 
-                    dispose();           
+                        errors.push(e);                            
 
-                    if (throwFn) {
-                        throwFn.call(iterator, e);
-                    }                                
-                };
-
-            iterators[0] =
-                self.observe({
-                    index: 0,
-                    next: function(innerObservable) {
-                        iterators[nextIteratorIndex] = 
-                            innerObservable.observe(
-                            {
-                                index: nextIteratorIndex,
-                                next: function(value) {
-                                    if (next) {
-                                        return next.call(iterator, value);
-                                    }
-                                },
-                                throw: throwFn,
-                                return: function(v) {
-                                    delete iterators[this.index];
-                                    numIterators--;
-
-                                    if (numIterators === 0) {
-                                        if (returnFn) {
-                                            return returnFn.call(iterator, v);
-                                        }
-                                    }
-                                    // NOTE THAT WE ONLY CAPTURE THE LAST RETURN VALUE
-                                }
-                            });
-
-                        nextIteratorIndex++;
-                        numIterators++;
+                        if (!delayErrors || numObservers === 0) {
+                            decoratedObserver.throw(errors.length > 1 ? {errors: errors} : errors[0]);
+                        }
                     },
-                    throw: throwFn,
+                    // In event of return, forwards on value if last observer, removes itself from observers
                     return: function(v) {
-                        delete iterators[this.index];
-                        numIterators--;
+                        delete observers[this[indexSymbol]];
+                        numObservers--;
 
-                        if (numIterators === 0) {
+                        if (numObservers === 0) {
+                            decoratedObserver.return(v);
+                        }
+                        // NOTE THAT WE ONLY CAPTURE THE LAST RETURN VALUE, could add accumulater function to capture all return values.
+                    }
+                },                              
+                observeInner = function(innerObservable) {
+                    // Wrap each inner observer and forward along any data received
+                    var innerObserver = {
+                        next: {
+                            value: function(value) {
+                                if (next) {
+                                    return next.call(decoratedObserver, value);
+                                }
+                            }
+                        }
+                    };
+                    innerObserver[indexSymbol] = { value: nextObserverIndex };
+
+                    observers[nextObserverIndex] = 
+                        innerObservable.observe(
+                            Object.create(
+                                observerPrototype, 
+                                innerObserver));
+
+                    numObservers++;
+                    nextObserverIndex++;
+                },
+                outerObserver = 
+                    Object.create(
+                        observerPrototype,
+                        {
+                            next: {
+                                value: observeInner
+                            }
+                        });
+
+            outerObserver[indexSymbol] = 0;
+            observers[0] = self.observe(outerObserver);
+
+            return decoratedObserver;
+        });
+    },
+    concatAll: function(delayErrors) {
+        var self = this;
+
+        return new Observable(function observe(observer) {
+            var indexSymbol = Symbol("index"), // key at which index of observer can be found. Index of each observer in observers map is stored at this symbol. This won't be necessary when we have Map.
+                observers = {},
+                numObservers = 1,
+                nextObserverIndex = 1,
+                observables = [],    
+                next = observer.next,
+                errors = [],
+                onDone = function() {
+                    var key,
+                        innerObserver,
+                        returnFn;
+
+                    for(key in observers) {
+                        innerObserver = observers[key];
+                        if (innerObserver) {
+                            returnFn = innerObserver.return;
                             if (returnFn) {
-                                return returnFn.call(iterator, v);
+                                returnFn.call(innerObserver);
+                            }
+                        }
+                    }
+                },
+                decoratedObserver = decorate(observer, onDone),
+                observerPrototype = {
+                    throw: function(e) {
+                        delete observers[this[indexSymbol]];
+                        numObservers--;
+                        observables.shift();
+                        
+                        errors.push(e);                            
+
+                        if (delayErrors && (numObservers > 0 || observables.length > 0)) {
+                            if (observables.length > 0) {
+                                observeInner();
                             }
                         }
                         else {
-                            if (v !== undefined && next) {
-                                return this.next(v);
-                            }
+                            decoratedObserver.throw(errors.length > 1 ? {errors: errors} : errors[0]);
                         }
-                    }
-                });
-
-            return Object.create(
-                iterator,
-                {
-                    return: {
-                        value: function(value) {
-                            dispose();
-                            if (returnFn && value !== undefined) {
-                                returnFn.call(iterator, value);
-                            }
-                        }
-                    }
-                });
-        });
-    },
-    concatAll: function() {
-        var self = this;
-        return new Observable(function observe(iterator) {
-            var outerIterator,
-                innerIterator,
-                observables = [],
-                returnFn = iterator.return,
-                next = iterator.next,
-                throwFn = iterator.throw,
-                observeInnerObservable = function(innerObservable) {
-                    innerIterator = 
-                        innerObservable.observe(
-                        {
-                            next: function(value) {
-                                if (next) {
-                                    return next.call(iterator, value);
-                                }
-                            },
-                            throw: function(e) {
-                                innerIterator = undefined;
-                                if (outerIterator) {
-                                    outerIterator.return();
-                                }
-
-                                if (throwFn) {
-                                    throwFn.call(iterator, e);
-                                }                                
-                            },
-                            return: function(v) {
-                                var result;
-
-                                innerIterator = undefined;
-
-                                observables.shift();
-                                if (observables.length > 0) {
-                                    observeInnerObservable(observables[observables.length - 1]);
-                                }
-                                else if (outerIterator === undefined) {
-                                    if (returnFn) {
-                                        result = returnFn.call(iterator, v);
-                                    }
-                                }
-
-                                return result;
-                            }
-                        });
-                };
-
-            outerIterator =
-                self.observe({
-                    next: function(innerObservable) {
-                        var self = this;
-                        
-                        observables.push(innerObservable);
-                        if (observables.length === 1) {
-                            observeInnerObservable(innerObservable);
-                        }
-                    },
-                    throw: function(e) {
-                        var throwFn = iterator.throw;              
-                        outerIterator = undefined;
-
-                        if (innerIterator)
-                            innerIterator.return();
-
-                        if (throwFn) {
-                            throwFn.call(iterator, e);
-                        }                                
                     },
                     return: function(v) {
-                        outerIterator = undefined;
+                        delete observers[this[indexSymbol]];
+                        numObservers--;
+                        observables.shift();
 
-                        if (!innerIterator) {
-                            if (returnFn) {
-                                return returnFn.call(iterator, v);
-                            }
+                        if (observables.length > 0) {
+                            observeInner();
+                        }
+                        else if (observers[0] === undefined) {
+                            decoratedObserver.return(v);
                         }
                     }
-                });
-
-            return Object.create(
-                iterator,
-                {
-                    return: {
-                        value: function(value) {
-                            if (outerIterator) {
-                                outerIterator.return();
-                            }
-                            if (innerIterator) {
-                                innerIterator.return();
-                            }
-
-                            if (returnFn && value !== undefined) {
-                                returnFn.call(iterator, value);
-                            }
-                        }
-                    }
-                });
-        });
-    },   
-    switchLatest: function() {
-        var self = this;
-        return new Observable(function observe(iterator) {
-            var outerIterator,
-                innerIterator,
-                observable,
-                returnFn = iterator.return,
-                next = iterator.next,
-                throwFn = iterator.throw;               
-
-            outerIterator =
-                self.observe({
-                    next: function(innerObservable) {
-                        var self = this;
-                        if (observable) {
-                            innerIterator.return();
-                        }
-                        observable = innerObservable;
-                        innerIterator = 
-                            innerObservable.observe(
-                            {
-                                next: function(value) {
-                                    if (next) {
-                                        return next.call(iterator, value);
-                                    }
-                                },
-                                throw: function(e) {
-                                    observable = undefined;
-                                    innerIterator = undefined;
-                                    if (outerIterator) {
-                                        outerIterator.return();
-                                    }
-
-                                    if (throwFn) {
-                                        throwFn.call(iterator, e);
-                                    }                                
-                                },
-                                return: function(v) {
-                                    var result;
-
-                                    innerIterator = undefined;
-                                    observable = undefined;
-                                    if (outerIterator === undefined) {
-                                        if (returnFn) {
-                                            result = returnFn.call(iterator, v);
+                },                             
+                observeInner = function() {
+                    var innerObservable = observables[0],
+                        innerObserver = 
+                            Object.create(
+                                observerPrototype, 
+                                {
+                                    next: {
+                                        value: function(value) {
+                                            if (next) {
+                                                return next.call(decoratedObserver, value);
+                                            }
                                         }
                                     }
+                                });
+                        innerObserver[indexSymbol] = nextObserverIndex;
 
-                                    return result;
+                    if (innerObservable) {
+                        observers[nextObserverIndex] = innerObservable.observe(innerObserver);
+
+                        numObservers++;
+                        nextObserverIndex++;
+                    }
+                },
+                outerObserver = 
+                    Object.create(
+                        observerPrototype,
+                        {
+                            next: {
+                                value: function(innerObservable) {
+                                    observables.push(innerObservable);
+                                    observeInner();
                                 }
-                            });
-                    },
-                    throw: function(e) {
-                        var throwFn = iterator.throw;              
-                        outerIterator = undefined;
-                        observable = undefined;
-
-                        if (innerIterator)
-                            innerIterator.return();
-
-                        if (throwFn) {
-                            throwFn.call(iterator, e);
-                        }                                
-                    },
-                    return: function(v) {
-                        outerIterator = undefined;
-
-                        if (!innerIterator) {
-                            if (returnFn) {
-                                return returnFn.call(iterator, v);
                             }
-                        }
-                    }
-                });
+                        });
+                outerObserver[indexSymbol] = 0;
 
-            return Object.create(
-                iterator,
-                {
-                    return: {
-                        value: function(value) {
-                            if (outerIterator) {
-                                outerIterator.return();
-                            }
-                            if (innerIterator) {
-                                innerIterator.return();
-                            }
+            observers[0] = self.observe(outerObserver);
 
-                            observable = undefined;
-
-                            if (returnFn && value !== undefined) {
-                                returnFn.call(iterator, value);
-                            }
-                        }
-                    }
-                });
+            return decoratedObserver;
         });
     },    
+    switchLatest: function(delayErrors) {
+        var self = this;
+
+        return new Observable(function observe(observer) {
+            var indexSymbol = Symbol("index"), // key at which index of observer can be found. Index of each observer in observers map is stored at this symbol. This won't be necessary when we have Map.
+                innerObservable,
+                observers = {},
+                numObservers = 0,
+                errors = [],
+                onDone = function() {
+                    var key,
+                        innerObserver,
+                        returnFn;
+
+                    if (innerObserver = observers[numObservers - 1]) {
+                        innerObserver.return();
+                    }
+
+                    if (outerObserver) {
+                        outerObserver.return();
+                    }
+                },
+                decoratedObserver = decorate(observer, onDone),
+                innerObserverPrototype = {
+                    throw: function(e) {
+                        delete observers[this[indexSymbol]];
+                        
+                        errors.push(e);                            
+
+                        if (!delayErrors || !outerObserver) {
+                            return decoratedObserver.throw(errors.length > 1 ? {errors: errors} : errors[0]);
+                        }
+                    },
+                    return: function(v) {
+                        delete observers[this[indexSymbol]];
+                        
+                        if (!outerObserver) {
+                            return decoratedObserver.return(v);
+                        }
+                    }
+                },
+                outerObserver = 
+                    Object.create(
+                        {
+                            throw: function(e) {
+                                var innerObserver = observers[numObservers - 1];
+                                outerObserver = undefined;
+                                
+                                errors.push(e);                            
+
+                                if (!delayErrors || !innerObserver) {
+                                    return decoratedObserver.throw(errors.length > 1 ? {errors: errors} : errors[0]);
+                                }
+                            },
+                            return: function(v) {
+                                var innerObserver = observers[numObservers - 1];
+                                outerObserver = undefined;
+                                
+                                if (!innerObserver) {
+                                    return decoratedObserver.return(v);
+                                }
+                            }
+                        },
+                        {
+                            next: {
+                                value: function(innerObservable) {
+                                    var innerObserver = observers[numObservers - 1];
+
+                                    if (innerObserver) {
+                                        innerObserver.return();
+                                    }
+
+                                    innerObserver = 
+                                        Object.create(
+                                            innerObserverPrototype, 
+                                            {
+                                                next: {
+                                                    value: function(value) {
+                                                        return decoratedObserver.next(value);
+                                                    }
+                                                }
+                                            });
+
+                                    innerObserver[indexSymbol] = numObservers;
+                                    observers[numObservers] = innerObservable.observe(innerObserver);
+                                    numObservers++;
+                                }
+                            }
+                        });
+
+            outerObserver = self.observe(outerObserver);
+
+            return decoratedObserver;
+        });
+    },
+    /*exclusive: function(delayErrors) {
+        var self = this;
+
+        return new Observable(function observe(observer) {
+            var indexSymbol = Symbol("index"), // key at which index of observer can be found. Index of each observer in observers map is stored at this symbol. This won't be necessary when we have Map.
+                observers = {},
+                numObservers = 1,
+                next = observer.next,
+                errors = [],
+                onDone = function() {
+                    var key,
+                        innerObserver,
+                        returnFn;
+
+                    for(key in observers) {
+                        innerObserver = observers[key];
+                        if (innerObserver) {
+                            returnFn = innerObserver.return;
+                            if (returnFn) {
+                                returnFn.call(innerObserver);
+                            }
+                        }
+                    }
+                },
+                decoratedObserver = decorate(observer, onDone),
+                observerPrototype = {
+                    throw: function(e) {
+                        observers[this[indexSymbol]] = undefined;
+                        numObservers--;
+                        
+                        errors.push(e);                            
+
+                        if (delayErrors && numObservers > 0) {
+                            if (observable[1]) {
+                                observeInner();
+                            }
+                        }
+                        else {
+                            decoratedObserver.throw(errors.length > 1 ? {errors: errors} : errors[0]);
+                        }
+                    },
+                    return: function(v) {
+                        observers[this[indexSymbol]] = undefined;
+                        numObservers--;
+
+                        if (observable) {
+                            observeInner();
+                        }
+                        else if (observers[0] === undefined) {
+                            if (returnFn) {
+                                result = returnFn.call(decoratedObserver, v);
+                            }
+                        }
+                    }
+                },                             
+                observeInner = function() {
+                    var innerObservable = observable,
+                        innerObserver;
+                    observable = undefined;
+
+                    if (innerObservable) {
+                        innerObserver = 
+                            Object.create(
+                                observerPrototype, 
+                                {
+                                    next: {
+                                        value: function(value) {
+                                            if (next) {
+                                                return next.call(decoratedObserver, value);
+                                            }
+                                        }
+                                    }
+                                });
+                        innerObserver[indexSymbol] = 1;
+
+                        observers[1] = innerObservable.observe(innerObserver);
+
+                        numObservers++;
+                    }
+                },
+                outerObserver = 
+                    Object.create(
+                        observerPrototype,
+                        {
+                            next: {
+                                value: function(innerObservable) {
+                                    observable = innerObservable;
+                                    if (observers[1]) {
+                                        observers[1].return();
+                                    }
+                                    else {
+                                        observeInner();
+                                    }
+                                }
+                            }
+                        });
+                outerObserver[indexSymbol] = 0;
+
+            observers[0] = self.observe(outerObserver);
+
+            return decoratedObserver;
+        });
+    },*/
     merge: function() {
         return Observable.from(
             [this].concat(
@@ -729,6 +878,20 @@ Observable.prototype = {
     },
     switchMap: function(projection) {
         return this.map(projection).switchLatest();
+    },
+    exclusiveMap: function(projection) {
+        return this.map(projection).exclusive();
     }
 };
+
+
+module.exports.Observable = Observable;
+
+
+
+
+
+
+
+
 

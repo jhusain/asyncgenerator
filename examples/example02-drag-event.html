@@ -1,6 +1,6 @@
 <html>
 <head>
-    <script src="../src/observable.js"></script>
+    <script src="../asyncgenerator.js"></script>
     </head>
     <body>
 <h1>Event composition with Asynchronous Generators</h1>
@@ -9,6 +9,7 @@ In this example, we create a mouse drag event for a given DOM element.  Drag the
 <script>
 
 window.onload = function() {
+    var Observable = asyncgenerator.Observable;
     var icon = document.getElementById('icon');
     var mouseDowns = Observable.fromEvent(icon, 'mousedown', function(e) { e.preventDefault(); });
     var documentMouseMoves = Observable.fromEvent(document, 'mousemove', function(e) { e.preventDefault(); });
