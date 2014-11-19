@@ -20,6 +20,7 @@ function* nums() {
   yield 3;
 }
 
+
 // data consumer
 function printData() {
   for(var x of nums()) {
