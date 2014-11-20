@@ -20,7 +20,6 @@ function* nums() {
   yield 3;
 }
 
-
 // data consumer
 function printData() {
   for(var x of nums()) {
@@ -29,7 +28,7 @@ function printData() {
 }
 ```
 
-These features are ideal for progressively consuming data stored in collections or lazily produced by computations. However they are not well-suited to consuming asynchronous streams of information, because Iteration is synchronous. 
+These features are ideal for progressively consuming data stored in collections or lazily-produced by computations. However they are not well-suited to consuming asynchronous streams of information, because Iteration is synchronous. 
 
 The async generator proposal attempts to solve this problem by adding symmetrical support for Observation to ES7. It would introduce asynchronous generator functions for producing data via _observation_, and a new for..._on_ loop for consuming data via observation.
 
@@ -62,7 +61,7 @@ async function getPriceSpikes(stockSymbol, int maxDelta) {
       oldPrice = price;
     }
     else {
-      delta = price - oldPrice;
+      delta = Math.abs(price - oldPrice);
       oldPrice = price;
       if (delta > maxDelta) {
         return {price, oldPrice};
@@ -138,9 +137,9 @@ async function *getStockPrices(stockName, currency) {
 var prices = getStockPrices("JNJ", "CAN");
 ```
 
-If a generator function modifies a function and causes it to return multiple values and the async modifier causes functions to push their values, _an asynchronous generator funciton must push multiple values_. What data type fits this description?
+If a generator function modifies a function and causes it to return multiple values and the async modifier causes functions to push their values, _an asynchronous generator function must push multiple values_. What data type fits this description?
 
-## The return type of an Async Generator
+## Introducing Observable
 
 ES6 introduces the Generator interface, which is a combination of two different interfaces:
 
@@ -161,7 +160,7 @@ interface Iterable {
 }
 ```
 
-The Iterator is a data source which can return a value, an error (via throw), or a final value (IterationResult::value where done === true):
+The Observer is a data _sink_ which can be pushed a value, an error (via throw()), or a final value (return()):
 
 ```JavaScript
 interface Observer {
@@ -171,11 +170,19 @@ interface Observer {
 }
 ```
 
-### Iteration and Observation
+These two data types mixed together forms a Generator:
 
-The difference between Iteration and Observation is which party is in control: the consumer or the producer. 
+```JavaScript
+interface Generator {
+  IterationResult next(value);
+  IterationResult return(returnValue);
+  IterationResult throw(error);
+}
+```
 
-In Iteration the consumer is in control, because the consumer initiates the request for the next value. In this example a function consumes all of the data in an Array using iteration.
+Iteration and Observation both enable a consumer to progressively retrieve 0...N values from a producer. _The only difference between Iteration and Observation is the party in control._ In iteration, the party in control is the consumer because it initiates the requests for the value and the producer must synchronously respond. 
+
+In this example a consumer requests an Iterator from an Array, and progressively requests the next value until the stream is exhausted.
 
 ```JavaScript
 function printNums(arr) {
@@ -189,7 +196,7 @@ function printNums(arr) {
 }
 ```
 
-ES6 adds special support for Iteration by adding syntactic support via for...of, and ensuring all built-in collections implement the new Iterable contract:
+This code relies on the fact that in ES6 all collections implement the Iterable interface.
 
 ```JavaScript
 interface Iterable {
@@ -197,7 +204,7 @@ interface Iterable {
 }
 ```
 
-Using the new ES6 for...of syntax, the program above can be rewritten like this:
+ES6 also added special support for...of syntax, the program above can be rewritten like this:
 
 ```JavaScript
 function printNums(arr) {
@@ -207,18 +214,42 @@ function printNums(arr) {
 }
 ```
 
-Pure Iteration and Observation are both unidirectional comunication protocols. They are like long-term, one-sided conversations between a producer and a consumer. 
+ES6 added great support for Iteration, but currently there is no equivalent of the Iterable type for Observation. How would we design such a type? By taking the dual of the Iterable type.
 
-In 
-
-interface Generator {
-  IterationResult next(value);
-  IterationResult throw(error);
-  IterationResult return(returnValue);
+```JavaScript
+interface Iterable {
+  Generator @@iterator()
 }
+```
 
-Generators allow two functions to have a long-term conversation.
+The dual of a type is derived by swapping the argument and return types, and taking the dual of each argument. The dual of a Generator is a generator, because it is symmetrical. The generator can both accept and return the same three messages:
 
+1. data
+2. error
+3. final value
+
+Therefore all that is left to do is swap the arguments and return type of the Iterator's iterator method and then we have an Observable.
+
+```JavaScript
+interface Observable {
+  void @@observer(Generator observer)
+}
+```
+
+An Observable accepts an Observer and pushes it 0...N values and optionally terminates by either pushes an error or a return value. This data type is what you get when you compose together the async and * function modifiers. 
+
+In ES7, any collection that is Iterable can also Observable. Here is an implementation for Array.
+
+```
+Array.prototype[@@observer] = function(observer) {
+  for(var x of this) {
+    observer.next(v);
+  }
+  observer.return();
+};
+```
+
+Async generators 
 Async generators can be transpiled into Async functions. A transpiler is in the works.
 
 The following code...
