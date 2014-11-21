@@ -314,6 +314,11 @@ setTimeout(function() {
 
 An Observable accepts a generator and pushes it 0...N values and optionally terminates by either pushes an error or a return value. This data type is what you get when you compose together the async and * function modifiers. 
 
+|               | Sync          | Async         |
+| ------------- |:-------------:|:-------------:|
+| function      | T             | Promise<T>    |
+| function*     | Iterator<T>   | Observable<T> |
+
 In ES7, any collection that is Iterable can also Observable. Here is an implementation for Array.
 
 ```
