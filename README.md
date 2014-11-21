@@ -222,7 +222,7 @@ interface Iterable {
 }
 ```
 
-The dual of a type is derived by swapping the argument and return types, and taking the dual of each argument. The dual of a Generator is a generator, because it is symmetrical. The generator can both accept and return the same three messages:
+The dual of a type is derived by swapping the argument and return types, and taking the dual of each argument. The dual of a Generator is a Generator, because it is symmetrical. The generator can both accept and return the same three types of notifications:
 
 1. data
 2. error
@@ -236,7 +236,83 @@ interface Observable {
 }
 ```
 
-An Observable accepts an Observer and pushes it 0...N values and optionally terminates by either pushes an error or a return value. This data type is what you get when you compose together the async and * function modifiers. 
+This interface is too simple. If iteration and observation are both long running functions, the party that is not in control needs a way to short-circuit the operation. In the case of observation the producer is in control, so the consumer needs a way of terminating observation. Using the terminology of events, the consumer needs a way to _unsubscribe_. To allow for this, we make the following modification to the Observable interface:
+
+```JavaScript
+interface Observable {
+  Generator @@observer(Generator observer)
+}
+```
+
+The Observable interface both accepts and returns a generator. The consumer can short-circuit observation (unsubscribe from the push stream) by invoking the return() method on the returned Generator. To demonstrate how this works, let's take a look at how we can adapt a commonly push stream API (DOM event) to an Observable.
+
+```JavaScript
+// The decorate method accepts a generator and dynamically inherits a new generator from it
+// using Object.create. The new generator wraps the next, return, and throw methods, 
+// intercepts any terminating operations, and invokes an onDone callback.
+// This includes calls to return, throw, or next calls that return a pair with done === true
+function decorate(generator, onDone) {
+  var decoratedGenerator = Object.create(generator);
+  decoratedGenerator.next = function(v) {
+    var pair = generator.next(v);
+    // if generator returns done = true, invoke onDone callback
+    if (pair && pair.done) {
+      onDone();
+    }
+    
+    return pair;
+  };
+  
+  ["throw","return"].forEach(method => {
+    var superMethod = generator[method];
+    decoratedGenerator[method] = function(v) {
+      // if either throw or return invoked, invoke onDone callback
+      onDone();
+      superMethod.call(generator, v);
+    };
+  });
+}
+
+// Convert any DOM event into an async generator
+Observable.fromEvent = function(dom, eventName) {
+  // an Observable is created by passing the defn of its observer method
+  return new Observable(function observer(generator) {
+      var handler,
+        decoratedGenerator = 
+          decorate(
+              generator,
+              // callback to invoke if generator is terminated
+              function onDone() {
+                   dom.removeEventListener(eventName, handler);
+              });
+        handler = function(e) {
+          decoratedGenerator.next(e);
+        };
+      
+      dom.addEventListener(eventName, handler);
+      
+      return decoratedGenerator;
+  });
+};
+
+// Adapt a DOM element's mousemoves to an Observable
+var mouseMoves = Observable.fromEvent(document.createElement('div'), "mousemove");
+
+// subscribe to Observable stream of mouse moves
+var decoratedGenerator = mouseMoves.observer({
+  next(e) {
+    console.log(e);
+  }
+});
+
+// unsubscribe 2 seconds later
+setTimeout(function() {
+  // short-circuit the observation/unsubscribe
+  decoratedGenerator.return();
+}, 2000);
+```
+
+An Observable accepts a generator and pushes it 0...N values and optionally terminates by either pushes an error or a return value. This data type is what you get when you compose together the async and * function modifiers. 
 
 In ES7, any collection that is Iterable can also Observable. Here is an implementation for Array.
 
@@ -249,8 +325,89 @@ Array.prototype[@@observer] = function(observer) {
 };
 ```
 
-Async generators 
-Async generators can be transpiled into Async functions. A transpiler is in the works.
+## Adapting existing push APIs to Observable
+
+It's easy to adapt the web's many push stream APIs to Observable.
+
+### Adapting DOM events to Observable
+```JavaScript
+// Convert any DOM event into an async generator
+Observable.fromEvent = function(dom, eventName) {
+    return new Observable(function fromDOMEventObserve(iterator) {
+        var decoratedIterator = 
+                decorate(
+                    iterator,
+                    function onDone() {
+                         dom.removeEventListener(eventName, handler);
+                    }),
+            handler = function(e) {
+              decoratedIterator.next(e);
+            };
+            
+        return decoratedIterator;
+    });
+};
+```
+
+### Adapting Object.observe to Observable
+
+```JavaScript
+Observable.fromEventPattern = function(add, remove) {
+    return new Observable(function observe(generator) {
+      var handler,
+        decoratedGenerator =
+          decorate(
+              generator, 
+              function() {
+                  remove(handler);
+              });
+
+      handler = decoratedGenerator.next.bind(decoratedGenerator);
+      
+      add(handler);
+
+      return decoratedGenerator;
+  });
+};
+
+Object.observations = function(obj) {
+    return Observable.fromEventPattern(
+        Object.observe.bind(Object, obj), 
+        Object.unobserve.bind(Object, obj));
+};
+```
+
+### Adapting setInterval to Observable
+
+```JavaScript
+Observable.interval = function(time) {
+    return new Observable(function forEach(generator) {
+        var handle,
+            decoratedGenerator = decorate(generator, function() { clearInterval(handle); });
+
+        handle = setInterval(function() {
+            decoratedGenerator.next();
+        }, time);
+
+        return decoratedGenerator;
+    });
+};
+```
+
+# A quick aside about Iterable and duality
+
+The fact that Observable and Iterable are not strict duals is a smell. If Observation and Iteration are truly dual, the correct definition of Iterable should be this:
+
+```JavaScript
+interface Iterable {
+  Generator iterator(Generator);
+}
+```
+In fact this definition is more useful than the current ES6 definition. In iteration, the party not in control is the producer. Using the same decorator pattern, the producer can now short-circuit the iterator without waiting for the consumer to call next. All the producer must do is invoke return() on the Generator passed to it, and the consumer will be notified. Now we have achieved duality, and given the party that is not in control the ability to short-circuit. I contend that collections should implement this new Iterable contract in ES7.
+
+# Transpilation
+
+Async generators can be transpiled into Async functions. A transpiler is in the works. Here's an example of the expected output.
 
 The following code...
 
