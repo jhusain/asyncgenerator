@@ -180,7 +180,7 @@ interface Generator {
 }
 ```
 
-Iteration and Observation both enable a consumer to progressively retrieve 0...N values from a producer. _The only difference between Iteration and Observation is the party in control._ In iteration, the party in control is the consumer because it initiates the requests for the value and the producer must synchronously respond. 
+Iteration and Observation both enable a consumer to progressively retrieve 0...N values from a producer. _The only difference between Iteration and Observation is the party in control._ In iteration the consumer is in control because the consumer initiates the request for a value, and the producer must synchronously respond. 
 
 In this example a consumer requests an Iterator from an Array, and progressively requests the next value until the stream is exhausted.
 
@@ -196,15 +196,7 @@ function printNums(arr) {
 }
 ```
 
-This code relies on the fact that in ES6 all collections implement the Iterable interface.
-
-```JavaScript
-interface Iterable {
-  Iterator @@iterator()
-}
-```
-
-ES6 also added special support for...of syntax, the program above can be rewritten like this:
+This code relies on the fact that in ES6, all collections implement the Iterable interface. ES6 also added special support for...of syntax, the program above can be rewritten like this:
 
 ```JavaScript
 function printNums(arr) {
@@ -222,7 +214,7 @@ interface Iterable {
 }
 ```
 
-The dual of a type is derived by swapping the argument and return types, and taking the dual of each argument. The dual of a Generator is a Generator, because it is symmetrical. The generator can both accept and return the same three types of notifications:
+The dual of a type is derived by swapping the argument and return types of its methods, and taking the dual of each term. The dual of a Generator is a Generator, because it is symmetrical. The generator can both accept and return the same three types of notifications:
 
 1. data
 2. error
@@ -236,7 +228,7 @@ interface Observable {
 }
 ```
 
-This interface is too simple. If iteration and observation are both long running functions, the party that is not in control needs a way to short-circuit the operation. In the case of observation the producer is in control, so the consumer needs a way of terminating observation. Using the terminology of events, the consumer needs a way to _unsubscribe_. To allow for this, we make the following modification to the Observable interface:
+This interface is too simple. If iteration and observation can be thought of as long running functions, the party that is not in control needs a way to short-circuit the operation. In the case of observation, the producer is in control. As a result the consumer needs a way of terminating observation. If we use the terminology of events, we would say the consumer needs a way to _unsubscribe_. To allow for this, we make the following modification to the Observable interface:
 
 ```JavaScript
 interface Observable {
@@ -244,7 +236,7 @@ interface Observable {
 }
 ```
 
-The Observable interface both accepts and returns a generator. The consumer can short-circuit observation (unsubscribe from the push stream) by invoking the return() method on the returned Generator. To demonstrate how this works, let's take a look at how we can adapt a commonly push stream API (DOM event) to an Observable.
+This version of the Observable interface both accepts _and returns_ a Generator. The consumer can short-circuit observation (unsubscribe) by invoking the return() method on the Generator object returned for the Observable @@observer method. To demonstrate how this works, let's take a look at how we can adapt a common push stream API (DOM event) to an Observable.
 
 ```JavaScript
 // The decorate method accepts a generator and dynamically inherits a new generator from it
@@ -275,7 +267,7 @@ function decorate(generator, onDone) {
 
 // Convert any DOM event into an async generator
 Observable.fromEvent = function(dom, eventName) {
-  // an Observable is created by passing the defn of its observer method
+  // An Observable is created by passing the defn of its observer method
   return new Observable(function observer(generator) {
       var handler,
         decoratedGenerator = 
@@ -299,7 +291,7 @@ Observable.fromEvent = function(dom, eventName) {
 var mouseMoves = Observable.fromEvent(document.createElement('div'), "mousemove");
 
 // subscribe to Observable stream of mouse moves
-var decoratedGenerator = mouseMoves.observer({
+var decoratedGenerator = mouseMoves[@@observer]({
   next(e) {
     console.log(e);
   }
@@ -312,21 +304,31 @@ setTimeout(function() {
 }, 2000);
 ```
 
-An Observable accepts a generator and pushes it 0...N values and optionally terminates by either pushes an error or a return value. This data type is what you get when you compose together the async and * function modifiers. 
+Observable is the data type that a function modified by both * and async returns, because it _pushes_ multiple values.
 
 |               | Sync          | Async         |
 | ------------- |:-------------:|:-------------:|
 | function      | T             | Promise<T>    |
 | function*     | Iterator<T>   | Observable<T> |
 
-In ES7, any collection that is Iterable can also Observable. Here is an implementation for Array.
+ An Observable accepts a generator and pushes it 0...N values and optionally terminates by either pushing an error or a return value. The consumer can also short-circuit by calling return() on the Generator object returned from the Observable's @@observer method. 
+
+In ES7, any collection that is Iterable should also be Observable. Here is an implementation for Array.
 
 ```
 Array.prototype[@@observer] = function(observer) {
+  var done,
+    decoratedObserver = decorate(observer, () => done = true);
+    
   for(var x of this) {
-    observer.next(v);
+    decoratedObserver.next(v);
+    if (done) {
+      return;
+    }
   }
-  observer.return();
+  decoratedObserver.return();
+  
+  return decoratedObserver;
 };
 ```
 
@@ -382,6 +384,44 @@ Object.observations = function(obj) {
 };
 ```
 
+### Adapting WebSocket to Observable
+
+```JavaScript
+
+Observable.fromWebSocket = function(ws) {
+  return new Observable(function observer(generator) {
+    var done = false,
+      decoratedGenerator = 
+        decorate(
+          generator,
+          () => {
+            if (!done) {
+              done = true;
+              ws.close();
+              ws.onmessage = null;
+              ws.onclose = null;
+              ws.onerror = null;
+            }
+          });
+    
+    ws.onmessage = function(m) {
+      decoratedGenerator.next(m);
+    };
+    
+    ws.onclose = function() {
+      done = true;
+      decoratedGenerator.return();
+    };
+    
+    ws.onerror = function(e) {
+      done = true;
+      decoratedGenerator.throw(e);
+    };
+    
+    return decoratedGenerator;
+  });
+}
+
 ### Adapting setInterval to Observable
 
 ```JavaScript
@@ -399,9 +439,9 @@ Observable.interval = function(time) {
 };
 ```
 
-# A quick aside about Iterable and duality
+## A quick aside about Iterable and duality
 
-The fact that Observable and Iterable are not strict duals is a smell. If Observation and Iteration are truly dual, the correct definition of Iterable should be this:
+The fact that the Observable and Iterable interface are not strict duals is a smell. If Observation and Iteration are truly dual, the correct definition of Iterable should be this:
 
 ```JavaScript
 interface Iterable {
