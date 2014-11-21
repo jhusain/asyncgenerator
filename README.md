@@ -447,72 +447,61 @@ Observable.interval = function(time) {
 ```
 ## Observable Composition
 
-The Observable type is composable. Third party libraries (a la Underscore) can easily be written which allow developers to build complex asynchronous applications using a declarative API similar to that of JavaScript's Array.
+The Observable type is composable. Once the various push stream APIs have been adapted to the Observable interface, it becomes possible to build complex asynchronous applications via composition instead of state machines. Third party libraries (a la Underscore) can easily be written which allow developers to build complex asynchronous applications using a declarative API similar to that of JavaScript's Array. Examples of such methods defined for Observable are included in this repo, but are _not_ proposed for standardization.
 
-Here's an example of a the definition of map and filter on Observable.
+Let's take the following three Array methods:
+```JavaScript
+[1,2,3].map(x => x + 1) // [2,3,4]
+[1,2,3].filter(x => x > 1) // [2,3]
+```
+Now let's also imagine that Array had the following method:
+```JavaScript
+[1,2,3].concatMap(x => [x + 1, x + 2]) // [2,3,3,4,4,5]
+```
+The concatMap method is a slight variation on map. The function passed to concatMap _must_ return an Array for each value it receives. This creates a tree. Then concatMap concatenates each inner array together left-to-right and flattens the tree by one dimension.
+```JavaScript
+[1,2,3].map(x => [x + 1, x + 2]) // [[2,3],[3,4],[4,5]]
+[1,2,3].concatMap(x => [x + 1, x + 2]) // [2,3,3,4,4,5]
+```
+Note: Some may know concatMap by the name "flatMap", but I use the name concatMap deliberately and the reasons will soon become obvious.
+
+These three methods are surprisingly versatile. Here's an example of some code that retrieves your favorite Netflix titles.
 
 ```JavaScript
-Observable.prototype = {
-    lift: function(generatorTransform) {
-        var self = this;
-        return new Observable(function(generator) {
-            return self.observe(generatorTransform.call(this, generator));
-        });
+var user = {
+  genreLists: [
+    {
+      name: "Drama",
+      titles: [
+        { id: 66, name: "House of Cards", rating: 5 },
+        { id: 22, name: "Orange is the New Black", rating: 5 },
+        // more titles snipped
+      ]
     },
-    map: function(projection, thisArg) {
-        var index = 0;
-        return this.lift(
-            function(generator) {
-                thisArg = thisArg !== undefined ? thisArg : this;            
-                return Object.create(
-                    generator,
-                    {
-                        next: {
-                            value: function(value) {
-                                var next = generator.next;
-                                if (next) {
-                                    try {
-                                        return next.call(generator, projection.call(thisArg, value), index++, this);
-                                    }
-                                    catch(e) {
-                                        return this.throw(e);
-                                    }
-                                }
-                            }
-                        }
-                    })
-            });
+    {
+      name: "Comedy",
+      titles: [
+        { id: 55, name: "Arrested Development", rating: 5 },
+        { id: 22, name: "Orange is the New Black", rating: 5 },
+        // more titles snipped
+      ]
     },
-    filter: function(predicate, thisArg) {
-        return this.lift(
-            function(generator) {
-                thisArg = thisArg !== undefined ? thisArg : this;
-                return Object.create(
-                    generator,
-                    {
-                        next: {
-                            value: function(value) {
-                                var next = generator.next,
-                                    throwFn;
-
-                                if (next && predicate.call(thisArg, value)) {
-                                    try {
-                                        return next.call(generator, value);    
-                                    }
-                                    catch(e) {
-                                        throwFn = this.throw;
-                                        if (throwFn) {
-                                            throwFn.call(this, e);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    })
-            });
-    },
+    // more genre lists snipped
+  ]
 }
+
+var getFavTitles = user => 
+  user.genreLists.concatMap(genreList =>
+    genreList.titles.filter(title => title.rating === 5));
+    
+getFavTitles(user).forEach(title => console.log(title.rating));
+
 ```
+
+
+A library of such methods are included in this repo, but are _not_ proposed for standardization.
+
+
 
 ## A quick aside about Iterable and duality
 
