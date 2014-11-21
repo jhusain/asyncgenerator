@@ -338,21 +338,25 @@ It's easy to adapt the web's many push stream APIs to Observable.
 
 ### Adapting DOM events to Observable
 ```JavaScript
-// Convert any DOM event into an async generator
 Observable.fromEvent = function(dom, eventName) {
-    return new Observable(function fromDOMEventObserve(iterator) {
-        var decoratedIterator = 
-                decorate(
-                    iterator,
-                    function onDone() {
-                         dom.removeEventListener(eventName, handler);
-                    }),
-            handler = function(e) {
-              decoratedIterator.next(e);
-            };
-            
-        return decoratedIterator;
-    });
+  // An Observable is created by passing the defn of its observer method to its constructor
+  return new Observable(function observer(generator) {
+      var handler,
+        decoratedGenerator = 
+          decorate(
+              generator,
+              // callback to invoke if generator is terminated
+              function onDone() {
+                   dom.removeEventListener(eventName, handler);
+              });
+        handler = function(e) {
+          decoratedGenerator.next(e);
+        };
+      
+      dom.addEventListener(eventName, handler);
+      
+      return decoratedGenerator;
+  });
 };
 ```
 
@@ -360,20 +364,21 @@ Observable.fromEvent = function(dom, eventName) {
 
 ```JavaScript
 Observable.fromEventPattern = function(add, remove) {
-    return new Observable(function observe(generator) {
-      var handler,
-        decoratedGenerator =
-          decorate(
-              generator, 
-              function() {
-                  remove(handler);
-              });
+  // An Observable is created by passing the defn of its observer method to its constructor
+  return new Observable(function observer(generator) {
+    var handler,
+      decoratedGenerator =
+        decorate(
+            generator, 
+            function() {
+                remove(handler);
+            });
 
-      handler = decoratedGenerator.next.bind(decoratedGenerator);
-      
-      add(handler);
+    handler = decoratedGenerator.next.bind(decoratedGenerator);
+    
+    add(handler);
 
-      return decoratedGenerator;
+    return decoratedGenerator;
   });
 };
 
@@ -389,6 +394,7 @@ Object.observations = function(obj) {
 ```JavaScript
 
 Observable.fromWebSocket = function(ws) {
+  // An Observable is created by passing the defn of its observer method to its constructor
   return new Observable(function observer(generator) {
     var done = false,
       decoratedGenerator = 
@@ -426,16 +432,16 @@ Observable.fromWebSocket = function(ws) {
 
 ```JavaScript
 Observable.interval = function(time) {
-    return new Observable(function forEach(generator) {
-        var handle,
-            decoratedGenerator = decorate(generator, function() { clearInterval(handle); });
+  return new Observable(function observer(generator) {
+      var handle,
+          decoratedGenerator = decorate(generator, function() { clearInterval(handle); });
 
-        handle = setInterval(function() {
-            decoratedGenerator.next();
-        }, time);
+      handle = setInterval(function() {
+          decoratedGenerator.next();
+      }, time);
 
-        return decoratedGenerator;
-    });
+      return decoratedGenerator;
+  });
 };
 ```
 
