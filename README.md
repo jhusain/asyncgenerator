@@ -34,7 +34,7 @@ The async generator proposal attempts to solve this problem by adding symmetrica
 
 ```JavaScript
 // data producer
-async function*() {
+async function* nums() {
   yield 1;
   yield 2;
   yield 3;
