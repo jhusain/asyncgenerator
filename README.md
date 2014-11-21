@@ -427,6 +427,7 @@ Observable.fromWebSocket = function(ws) {
     return decoratedGenerator;
   });
 }
+```
 
 ### Adapting setInterval to Observable
 
@@ -443,6 +444,74 @@ Observable.interval = function(time) {
       return decoratedGenerator;
   });
 };
+```
+## Observable Composition
+
+The Observable type is composable. Third party libraries (a la Underscore) can easily be written which allow developers to build complex asynchronous applications using a declarative API similar to that of JavaScript's Array.
+
+Here's an example of a the definition of map and filter on Observable.
+
+```JavaScript
+Observable.prototype = {
+    lift: function(generatorTransform) {
+        var self = this;
+        return new Observable(function(generator) {
+            return self.observe(generatorTransform.call(this, generator));
+        });
+    },
+    map: function(projection, thisArg) {
+        var index = 0;
+        return this.lift(
+            function(generator) {
+                thisArg = thisArg !== undefined ? thisArg : this;            
+                return Object.create(
+                    generator,
+                    {
+                        next: {
+                            value: function(value) {
+                                var next = generator.next;
+                                if (next) {
+                                    try {
+                                        return next.call(generator, projection.call(thisArg, value), index++, this);
+                                    }
+                                    catch(e) {
+                                        return this.throw(e);
+                                    }
+                                }
+                            }
+                        }
+                    })
+            });
+    },
+    filter: function(predicate, thisArg) {
+        return this.lift(
+            function(generator) {
+                thisArg = thisArg !== undefined ? thisArg : this;
+                return Object.create(
+                    generator,
+                    {
+                        next: {
+                            value: function(value) {
+                                var next = generator.next,
+                                    throwFn;
+
+                                if (next && predicate.call(thisArg, value)) {
+                                    try {
+                                        return next.call(generator, value);    
+                                    }
+                                    catch(e) {
+                                        throwFn = this.throw;
+                                        if (throwFn) {
+                                            throwFn.call(this, e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    })
+            });
+    },
+}
 ```
 
 ## A quick aside about Iterable and duality
