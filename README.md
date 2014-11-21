@@ -267,7 +267,7 @@ function decorate(generator, onDone) {
 
 // Convert any DOM event into an async generator
 Observable.fromEvent = function(dom, eventName) {
-  // An Observable is created by passing the defn of its observer method
+  // An Observable is created by passing the defn of its observer method to its constructor
   return new Observable(function observer(generator) {
       var handler,
         decoratedGenerator = 
