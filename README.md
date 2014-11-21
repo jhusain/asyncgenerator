@@ -490,18 +490,44 @@ var user = {
   ]
 }
 
-var getFavTitles = user => 
-  user.genreLists.concatMap(genreList =>
+// for each genreList, the map fn returns an array of all titles with
+// a rating of 5.0.  These title arrays are then concatenated together 
+// to create a flat list of the user's favorite titles.
+function getFavTitles(user) {
+  return user.genreLists.concatMap(genreList =>
     genreList.titles.filter(title => title.rating === 5));
-    
+}
+
+// we consume the titles and write the to the console
 getFavTitles(user).forEach(title => console.log(title.rating));
 
 ```
+Using nearly the same code, we can build a drag and drop event. Observables are streams of values that arrive over time. They can be composed using the same Array methods we used in the example above (and a few more).
+In this example we compose Observables together to create a mouse drag event for a DOM element.
 
+```JavaScript
+// for each mouse down event, the map fn returns the stream
+// of all the mouse move events that will occur until the
+// next mouse up event. This creates a stream of streams,
+// each of which is concatenated together to form a flat
+// stream of all the mouse drag events there ever will be.
+function getMouseDrags(elmt) {
+  var mouseDowns = Observable.fromEvent(elmt, "mousedown"),
+  var documentMouseMoves = Observable.fromEvent(document.body, "mousemove"),
+  var documentMouseUps = Observable.fromEvent(document.body, "mouseup");
+  
+  return mouseDowns.concatMap(mouseDown =>
+    documentMouseMoves.takeUntil(documentMouseUps));
+};
 
-A library of such methods are included in this repo, but are _not_ proposed for standardization.
+var image = document.createElement("img");
+document.body.appendChild(image);
 
-
+getMouseDrags(image).forEach(dragEvent => {
+  image.style.left = dragEvent.clientX;
+  image.style.top = dragEvent.clientY;
+});
+```
 
 ## A quick aside about Iterable and duality
 
