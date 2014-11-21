@@ -771,7 +771,9 @@ var Symbol = _dereq_('es6-symbol');
 var asap = _dereq_('asap');
 
 function decorate(iterator, onDone) {
-    var done = false;
+    var done = false,
+        nextFn = iterator.next;
+
     return Object.create(
         iterator,
         {
@@ -822,19 +824,25 @@ function Observable(observeDefn) {
 Observable.fromEventPattern = function(add, remove, scheduler) {
     scheduler = scheduler || microTaskScheduler;
 
-    return new Observable(function observe(iterator) {
-        var next = iterator.next;
-        var handler = function() {
+    return new Observable(function observe(generator) {
+        var handler,
+            decoratedGenerator =
+            decorate(
+                generator, 
+                function() {
+                    remove(handler);
+                }),
+            next = decoratedGenerator.next;
+
+        handler = function() {
             if (next) {
-                next.apply(iterator, Array.prototype.slice.call(arguments));
+                next.apply(decoratedGenerator, Array.prototype.slice.call(arguments));
             }
         };
 
         scheduler(function() { add(handler) });
 
-        return decorate(iterator, function() {
-            remove(handler);
-        });
+        return decoratedGenerator;
     });
 };
 
@@ -842,63 +850,65 @@ Observable.fromEventPattern = function(add, remove, scheduler) {
 Observable.fromEvent = function(dom, eventName, syncAction, scheduler) {
     scheduler = scheduler || microTaskScheduler;
 
-    return new Observable(function fromDOMEventObserve(iterator) {
-        var handler = function(e) {
+    return new Observable(function fromDOMEventObserve(generator) {
+        var handler,
+            decoratedGenerator = 
+                decorate(
+                    generator,
+                    function onDone() {
+                         dom.removeEventListener(eventName, handler);
+                    });
+
+            handler = function(e) {
                 if (syncAction) {
                     syncAction(e);
                 }
 
-                iterator.next(e);
-            },
-            decoratedIterator = 
-                decorate(
-                    iterator,
-                    function onDone() {
-                         dom.removeEventListener(eventName, handler);
-                    });
-            
+                decoratedGenerator.next(e);
+            };
+                
         scheduler(function() {
             dom.addEventListener(eventName, handler)
         });
 
-        return decoratedIterator;
+        return decoratedGenerator;
     });
 };
 
 Observable.empty = function(scheduler) {
     scheduler = scheduler || microTaskScheduler;
-    return new Observable(function(iterator) {
+    return new Observable(function(generator) {
         var done = false,
-            decoratedIterator = decorate(iterator);
+            decoratedGenerator = decorate(generator);
 
-        scheduler(decoratedIterator.return.bind(decoratedIterator));
+        scheduler(decoratedGenerator.return.bind(decoratedGenerator));
 
-        return decoratedIterator;
+        return decoratedGenerator;
     });
 };
 
 Observable.from = function(arr, scheduler) {
     scheduler = scheduler || microTaskScheduler;
 
-    return new Observable(function(iterator) {
+    return new Observable(function(generator) {
         var done = false,
-            decoratedIterator = 
-                decorate(iterator, function() { done = true });
+            decoratedGenerator = 
+                decorate(generator, function() { done = true });
 
         scheduler(function() {
             for(var count = 0; count < arr.length; count++) {
                 if (done) {
                     return;
                 }
-                decoratedIterator.next(arr[count]);
+                decoratedGenerator.next(arr[count]);
             }
             if (done) {
                 return;
             }
-            decoratedIterator.return();
+            decoratedGenerator.return();
         });
 
-        return decoratedIterator;
+        return decoratedGenerator;
     })
 };
 
@@ -915,15 +925,15 @@ Observable.of = function() {
 };
 
 Observable.interval = function(time) {
-    return new Observable(function forEach(observer) {
+    return new Observable(function forEach(generator) {
         var handle,
-            decoratedObserver = decorate(observer, function() { clearInterval(handle); });
+            decoratedGenerator = decorate(generator, function() { clearInterval(handle); });
 
         handle = setInterval(function() {
-            decoratedObserver.next();
+            decoratedGenerator.next();
         }, time);
 
-        return decoratedObserver;
+        return decoratedGenerator;
     });
 };
 
@@ -942,26 +952,26 @@ Observable.timeout = function(time) {
 };
 
 Observable.prototype = {
-    lift: function(iteratorTransform) {
+    lift: function(generatorTransform) {
         var self = this;
-        return new Observable(function(iterator) {
-            return self.observe(iteratorTransform.call(this, iterator));
+        return new Observable(function(generator) {
+            return self.observe(generatorTransform.call(this, generator));
         });
     },
     map: function(projection, thisArg) {
         var index = 0;
         return this.lift(
-            function(iterator) {
+            function(generator) {
                 thisArg = thisArg !== undefined ? thisArg : this;            
                 return Object.create(
-                    iterator,
+                    generator,
                     {
                         next: {
                             value: function(value) {
-                                var next = iterator.next;
+                                var next = generator.next;
                                 if (next) {
                                     try {
-                                        return next.call(iterator, projection.call(thisArg, value), index++, this);
+                                        return next.call(generator, projection.call(thisArg, value), index++, this);
                                     }
                                     catch(e) {
                                         return this.throw(e);
@@ -974,19 +984,19 @@ Observable.prototype = {
     },
     filter: function(predicate, thisArg) {
         return this.lift(
-            function(iterator) {
+            function(generator) {
                 thisArg = thisArg !== undefined ? thisArg : this;
                 return Object.create(
-                    iterator,
+                    generator,
                     {
                         next: {
                             value: function(value) {
-                                var next = iterator.next,
+                                var next = generator.next,
                                     throwFn;
 
                                 if (next && predicate.call(thisArg, value)) {
                                     try {
-                                        return next.call(iterator, value);    
+                                        return next.call(generator, value);    
                                     }
                                     catch(e) {
                                         throwFn = this.throw;
@@ -1002,14 +1012,14 @@ Observable.prototype = {
     },
     scan: function(combiner, acc) {
         return this.lift(
-            function(iterator) {
-                var next = iterator.next,
-                    returnFn = iterator.return,
+            function(generator) {
+                var next = generator.next,
+                    returnFn = generator.return,
                     index = 0,
                     self = this;
 
                 return Object.create(
-                    iterator,
+                    generator,
                     {
                         next: {
                             value: function(value) {  
@@ -1017,17 +1027,17 @@ Observable.prototype = {
                                     acc = value;
                                 }
                                 else if (next && predicate(value)) {
-                                    return next.call(iterator, combiner.call(null, acc, value, index++, self));
+                                    return next.call(generator, combiner.call(null, acc, value, index++, self));
                                 }
                             }
                         },
                         return: {
                             value: function(value) {
                                 if (next) {
-                                    next.call(iterator, acc);
+                                    next.call(generator, acc);
                                 }
                                 if (returnFn) {
-                                    return returnFn.call(iterator, value);
+                                    return returnFn.call(generator, value);
                                 }
                             }
                         }
@@ -1050,17 +1060,17 @@ Observable.prototype = {
     },    
     first: function() {
         return this.lift(
-            function(iterator) {
-                var next = iterator.next,
-                    returnFn = iterator.return;
+            function(generator) {
+                var next = generator.next,
+                    returnFn = generator.return;
 
                 return Object.create(
-                    iterator,
+                    generator,
                     {
                         next: {
                             value: function(value) {  
                                 if (next) {
-                                    next.call(iterator, value);
+                                    next.call(generator, value);
                                 }
                                 this.return();
                             }
@@ -1071,12 +1081,12 @@ Observable.prototype = {
     last: function() {
         var lastValue;
         return this.lift(
-            function(iterator) {
-                var next = iterator.next,
-                    returnFn = iterator.return;
+            function(generator) {
+                var next = generator.next,
+                    returnFn = generator.return;
 
                 return Object.create(
-                    iterator,
+                    generator,
                     {
                         next: {
                             value: function(value) {  
@@ -1086,10 +1096,10 @@ Observable.prototype = {
                         return: {
                             value: function(value) {
                                 if (next && lastValue !== undefined) {
-                                    next.call(iterator, lastValue);
+                                    next.call(generator, lastValue);
                                 }
                                 if (returnFn) {
-                                    return returnFn.call(iterator, value);
+                                    return returnFn.call(generator, value);
                                 }
                             }
                         }
@@ -1104,18 +1114,18 @@ Observable.prototype = {
     },
     skip: function(num) {
         return this.lift(
-            function(iterator) {
-                var next = iterator.next,
-                    returnFn = iterator.return;
+            function(generator) {
+                var next = generator.next,
+                    returnFn = generator.return;
 
                 return Object.create(
-                    iterator,
+                    generator,
                     {
                         next: {
                             value: function(value) {  
                                 num--;
                                 if (num < 0 && next) {
-                                    next.call(iterator,value);
+                                    next.call(generator,value);
                                 }
                             }
                         }
@@ -1149,14 +1159,14 @@ Observable.prototype = {
             count = 0;
 
         return this.lift(
-            function(iterator) {
-                var next = iterator.next;
+            function(generator) {
+                var next = generator.next;
                 return Object.create(
-                    iterator,
+                    generator,
                     {
                         next: {
                             value: function(value) {                            
-                                var result = next.call(iterator, value);
+                                var result = next.call(generator, value);
 
                                 if (count === num - 1) {
                                     result = this.return();
@@ -1171,42 +1181,42 @@ Observable.prototype = {
     },
     takeUntil: function(stops) {
         var self = this;
-        return new Observable(function(iterator) {
-            var next = iterator.next,
-                throwFn = iterator.throw,
-                returnFn = iterator.return,
-                decoratedIterator,
-                stopIterator = 
+        return new Observable(function(generator) {
+            var next = generator.next,
+                throwFn = generator.throw,
+                returnFn = generator.return,
+                decoratedGenerator,
+                stopGenerator = 
                     stops.observe({
                         done: false,
                         next: function(v) {
-                            stopIterator.return();
-                            return decoratedIterator.return();
+                            stopGenerator.return();
+                            return decoratedGenerator.return();
                         },
                         throw: function(e) {
-                            return decoratedIterator.throw(e);
+                            return decoratedGenerator.throw(e);
                         },
                         return: function(v) {
-                            return decoratedIterator.return();
+                            return decoratedGenerator.return();
                         }
                     });
 
-                decoratedIterator =
+                decoratedGenerator =
                     self.observe(
                         Object.create(
-                            iterator,
+                            generator,
                             {
                                 throw: {
                                     value: function(e) {
-                                        stopIterator.return();
+                                        stopGenerator.return();
                                         if (throwFn) {
-                                            throwFn.call(iterator, e);
+                                            throwFn.call(generator, e);
                                         }
                                     }
                                 },
                                 return: {
                                     value: function(value) {
-                                        stopIterator.return();
+                                        stopGenerator.return();
                                         if (returnFn) {
                                             returnFn.call(this, value);
                                         }
@@ -1214,7 +1224,7 @@ Observable.prototype = {
                                 }
                             }));
 
-                return decoratedIterator;
+                return decoratedGenerator;
         });
     },
     /*
