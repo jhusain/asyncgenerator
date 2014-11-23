@@ -48,10 +48,10 @@ async function printData() {
 }
 ```
 
-The for..._on_ loop would allow any of the web's many push data streams to be consumed using the simple and familiar loop syntax. Here's an example that returns the first stock price that differs by a certain delta.
+The for..._on_ loop would allow any of the web's many push data streams to be consumed using the simple and familiar loop syntax. Here's an example that returns the a stream of stock price deltas that exceed a threshold.
 
 ```JavaScript
-async function getPriceSpikes(stockSymbol, int maxDelta) {
+async function* getPriceSpikes(stockSymbol, threshold) {
   var delta,
     oldPrice,
     price;
@@ -63,8 +63,8 @@ async function getPriceSpikes(stockSymbol, int maxDelta) {
     else {
       delta = Math.abs(price - oldPrice);
       oldPrice = price;
-      if (delta > maxDelta) {
-        return {price, oldPrice};
+      if (delta > threshold) {
+        yield {price, oldPrice};
       }
     }
   }
