@@ -56,7 +56,7 @@ async function* getPriceSpikes(stockSymbol, threshold) {
     oldPrice,
     price;
     
-  for(var price on toObservable(new WebSocket("ws://www.fakedomain.com/stockstream/" + stockSymbol))) {
+  for(var price on new WebSocket("ws://www.fakedomain.com/stockstream/" + stockSymbol)) {
     if (oldPrice == null) {
       oldPrice = price;
     }
@@ -64,18 +64,22 @@ async function* getPriceSpikes(stockSymbol, threshold) {
       delta = Math.abs(price - oldPrice);
       oldPrice = price;
       if (delta > threshold) {
-        yield {price, oldPrice};
+        yield {price, oldPrice, delta};
       }
     }
   }
 }
 
-// get the prices that differ from previous spike by $5.00
-getPriceSpikes("JNJ", 5.00)[@@observer]{
-  next({price, oldPrice} {
+// Print price spikes until delta larger than 20
+// Like await, for...on only works in async funcitons
+(async function() {
+  for(let {price, oldPrice} on getPriceSpikes("JNJ", 5.00)) {
     console.log("price:", price, "old price": oldPrice);
+    if (delta > 20) {
+      break;
+    }
   }
-});
+}());
 ```
 
 ## Introducing Async Generators
@@ -532,6 +536,7 @@ getMouseDrags(image).forEach(dragEvent => {
   image.style.top = dragEvent.clientY;
 });
 ```
+
 ### Asynchronous Observation
 
 Observation puts control in the hands of the producer. The producer may asynchronously send values, but the consumer must handle those values synchronously to avoid receiving interleaving next() calls. In some situations the consumer is unable to handle a value synchronously and must prevent the producer from sending more values until it has asynchronously handled a value. This pattern is known as _asynchronous observation_.  
