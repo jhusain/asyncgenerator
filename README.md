@@ -73,7 +73,7 @@ async function* getPriceSpikes(stockSymbol, threshold) {
 // Print price spikes until delta larger than 20
 // Like await, for...on only works in async funcitons
 (async function() {
-  for(let {price, oldPrice} on getPriceSpikes("JNJ", 5.00)) {
+  for(let {price, oldPrice, delta} on getPriceSpikes("JNJ", 5.00)) {
     console.log("price:", price, "old price": oldPrice);
     if (delta > 20) {
       break;
