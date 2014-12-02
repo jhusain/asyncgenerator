@@ -70,8 +70,12 @@ async function* getPriceSpikes(stockSymbol, threshold) {
   }
 }
 
-// get the first price that differs from previous spike by $5.00
-getPriceSpikes("JNJ", 5.00).then(priceDelta => console.log("PRICE SPIKE:", priceDelta));
+// get the prices that differ from previous spike by $5.00
+getPriceSpikes("JNJ", 5.00)[@@observer]{
+  next({price, oldPrice} {
+    console.log("price:", price, "old price": oldPrice);
+  }
+});
 ```
 
 ## Introducing Async Generators
