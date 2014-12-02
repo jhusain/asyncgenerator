@@ -528,6 +528,154 @@ getMouseDrags(image).forEach(dragEvent => {
   image.style.top = dragEvent.clientY;
 });
 ```
+## Asynchronous Observation
+
+Observation puts control in the hands of the producer. The producer may asynchronously send values, but the consumer must handle those values synchronously to avoid receiving interleaving next() calls. In some situations the consumer is unable to handle a value synchronously and must prevent the producer from sending more values until it has asynchronously handled a value. This pattern is known as _asynchronous observation_.  
+
+One example of asynchronous observation is asynchronous I/O, in which both the sink and source are asynchronous.  The read stream must wait until the write stream has asynchronously handled a value. This is sometimes referred to as_back pressure_.
+
+Asynchronous observation arises from the composition of for...on and await.  Here's an example:
+
+```JavaScript
+async function testFn() {
+  var writer = new AsyncStreamWriter("/...");
+  
+  for(var x on new AsyncStreamReader("/...")) {
+    await writer.write(x);
+  }
+}
+```
+
+Note that in the example above, the promise created by the write operation is being awaited within the body of the for…on loop. To avoid concurrent write operations, the Data source must wait until the data sink has asynchronously finished handling each value. How is this accomplished?
+
+Introducing Asynchronous Observable
+
+An Asynchronous Observable is Observable that waits on promises returned the generator methods next(), throw(), and return().  Here’s an example of an asynchronous generator function that returns an asynchronous observable.
+
+```JavaScript
+async function* getStocks() {
+	var reader = new AsyncFileReader(“stocks.txt”);
+	try {	
+		while(!reader.eof) {
+			var line = await reader.readLine();
+			await yield JSON.parse(line);
+                           }
+	}
+	finally {
+		await reader.close();
+	}
+}
+```
+
+Note that the asynchronous observable returned by the function above awaits promises returned by the generator before sending more values. We can desugar the code above to this:
+
+```JavaScript
+function spawn(genF) {
+    return new Promise(function(resolve, reject) {
+        var gen = genF();
+        function step(nextF) {
+            var next;
+            try {
+                next = nextF();
+            } catch(e) {
+                // finished with failure, reject the promise
+                reject(e); 
+                return;
+            }
+            if(next.done) {
+                // finished with success, resolve the promise
+                resolve(next.value);
+                return;
+            } 
+            else if (next.value && next.value.then) {
+                // not finished, chain off the yielded promise and `step` again
+                Promise.cast(next.value).then(function(v) {
+                    step(function() { return gen.next(v); });      
+                }, function(e) {
+                    step(function() { return gen.throw(e); });
+                });
+            }
+            else {
+                // ES6 tail recursion prevents stack growth
+                step(function() { return gen.next(next.value)});
+            }
+        }
+        step(function() { return gen.next(undefined); });
+    });
+}
+
+function() {
+    return new Observable(function observer(generator) {
+        var done,
+            decoratedGenerator = Object.create(generator);
+        
+        ["return", "throw"].forEach(method => {
+            decoratedGenerator[method] = function (arg) {
+                done = true;
+                generator[method].call(this, arg);
+            };
+        });
+
+        decoratedGenerator.next = function(v) {
+            var pair = generator.next.call(this, v);
+            done = pair.done;
+            return pair;
+        };
+
+        spawn(function*() {
+            var reader,
+                line,
+                pair;
+
+            // generator.return() could've been invoked before this function ran
+            if (done) { return; }
+            
+            reader = new AsyncFileReader("stocks.txt"),
+            try {
+                while(!reader.eof) {
+                    // send promise to spawn fn to be resolved
+                    line = yield reader.readLine();
+                    // generator.return() could've been invoked while this promise was resolving
+                    if (done) { return; }
+
+                    // Send value to generator
+                    pair = decoratedGenerator.next(JSON.parse(line));
+                    if (done) {
+                        return;
+                    }
+                    else {
+                        // send promise (or regular value) to spawn fn to be resolved
+                        yield pair.value;
+                        // generator.return() could've been invoked while this promise was resolving
+                        if (done) { return; }
+
+                    }
+                }
+            }
+            finally {
+                // send promise (or regular value) to spawn fn to be resolved
+                yield reader.close();
+                // generator.return() could've been invoked while this promise was resolving
+                if (done) { return; }                
+            }
+        }).then(
+            (v) => {
+                if (!done) {
+                    decoratedGenerator.return(v);
+                }
+            }),
+            (e) => {
+                if (!done) {
+                    decoratedGenerator.throw(e);
+                }
+            });
+
+        return decoratedGenerator;
+    });
+    
+}
+
+```
 
 ## A quick aside about Iterable and duality
 
