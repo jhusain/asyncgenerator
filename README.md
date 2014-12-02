@@ -48,7 +48,7 @@ async function printData() {
 }
 ```
 
-The for..._on_ loop would allow any of the web's many push data streams to be consumed using the simple and familiar loop syntax. Here's an example that returns the a stream of stock price deltas that exceed a threshold.
+The for..._on_ loop would allow any of the web's many push data streams to be consumed using the simple and familiar loop syntax. Here's an example that of an async generator function that generates an asynchronous stream of stock price deltas. 
 
 ```JavaScript
 async function* getPriceSpikes(stockSymbol, threshold) {
@@ -70,6 +70,11 @@ async function* getPriceSpikes(stockSymbol, threshold) {
   }
 }
 
+```
+
+In this example we use the previously defined async generator function and for...on to print price deltas for a given stock:
+
+```JavaScript
 // Print price spikes until delta larger than 20
 // Like await, for...on only works in async funcitons
 (async function() {
