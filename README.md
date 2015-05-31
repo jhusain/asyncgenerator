@@ -1,6 +1,6 @@
 # Async Generator Proposal (ES7)
 
-Async Generators are currently proposed for ES7 and are at the strawman phase. This proposal builds on the [async function](https://github.com/lukehoban/ecmascript-asyncawait) proposal.
+Async Generators are currently proposed for ES7 and are at the strawman phase. This proposal builds on the [async function](https://github.com/tc39/ecmascript-asyncawait) proposal.
 
 JavaScript programs are single-threaded and therefore must streadfastly avoid blocking on IO operations. Today web developers must deal with a steadily increasing number of push stream APIs:
 
