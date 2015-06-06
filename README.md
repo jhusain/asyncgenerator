@@ -1,5 +1,7 @@
 # Async Generator Proposal (ES7)
 
+**This proposal has been withdrawn. For a more updated (and smaller scoped) proposal, see (Observable in ES2016)[https://github.com/zenparsing/es-observable]**
+
 Async Generators are currently proposed for ES7 and are at the strawman phase. This proposal builds on the [async function](https://github.com/lukehoban/ecmascript-asyncawait) proposal.
 
 JavaScript programs are single-threaded and therefore must streadfastly avoid blocking on IO operations. Today web developers must deal with a steadily increasing number of push stream APIs:
@@ -856,4 +858,3 @@ function getStockPrices(stockNames, nameServiceUrl) {
     });
 }
 ```
-
